@@ -57,6 +57,22 @@ public static class ImportedTimelineManager
 		}
 
 		var profile = ReadProfile(normalizedPath);
+		return SaveImportedProfile(profile);
+	}
+
+	public static ImportedTimelineProfile ImportProfileFromText(string jsonText)
+	{
+		if (string.IsNullOrWhiteSpace(jsonText))
+		{
+			throw new ArgumentException("Timeline profile JSON is empty.", nameof(jsonText));
+		}
+
+		var profile = ReadProfileText(jsonText, "clipboard");
+		return SaveImportedProfile(profile);
+	}
+
+	private static ImportedTimelineProfile SaveImportedProfile(ImportedTimelineProfile profile)
+	{
 		var outputPath = Path.Combine(ProfilesDirectory, $"{MakeSafeFileName(profile.ProfileId)}.json");
 		File.WriteAllText(outputPath, JsonConvert.SerializeObject(profile, Formatting.Indented));
 
@@ -127,11 +143,17 @@ public static class ImportedTimelineManager
 	private static ImportedTimelineProfile ReadProfile(string filePath)
 	{
 		var text = File.ReadAllText(filePath);
-		var profile = JsonConvert.DeserializeObject<ImportedTimelineProfile>(text)
+		return ReadProfileText(text, filePath);
+	}
+
+	private static ImportedTimelineProfile ReadProfileText(string text, string sourceName)
+	{
+		var normalizedText = text.Trim().TrimStart('\uFEFF');
+		var profile = JsonConvert.DeserializeObject<ImportedTimelineProfile>(normalizedText)
 			?? throw new InvalidDataException("Timeline profile JSON could not be parsed.");
 
 		NormalizeProfile(profile);
-		ValidateProfile(profile, filePath);
+		ValidateProfile(profile, sourceName);
 		return profile;
 	}
 
