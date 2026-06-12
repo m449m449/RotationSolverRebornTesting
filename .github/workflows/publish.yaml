@@ -39,5 +39,5 @@ jobs:
       - name: Publish Plugin
         uses: softprops/action-gh-release@v3
         with:
-          files: ./build/RotationSolver/latest.zip
+          files: ./build/RotationSolverTesting/latest.zip
           token: ${{ secrets.GITHUB_TOKEN }}
