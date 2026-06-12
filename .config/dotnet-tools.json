@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "isRoot": true,
+  "tools": {
+    "rotationsolver.documentationgenerator": {
+      "version": "1.0.0",
+      "commands": [
+        "docgen"
+      ],
+      "rollForward": false
+    }
+  }
+}
