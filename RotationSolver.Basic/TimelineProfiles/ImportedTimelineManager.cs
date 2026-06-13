@@ -382,9 +382,11 @@ public static class ImportedTimelineRuntime
 	private const float ExecuteLeadSeconds = 0.6f;
 	private const float AssistLeadSeconds = 10.0f;
 	private const float MissWindowSeconds = 6.0f;
+	private const float CountdownEndGraceSeconds = 2.0f;
 	private static string _activeProfileSignature = string.Empty;
 	private static int _nextActionIndex;
 	private static DateTime _lastObservedActionTime = DateTime.Now;
+	private static DateTime _lastCountdownObservedTime = DateTime.MinValue;
 	private static float _lastCombatTime;
 
 	public static bool TryGetActiveProfile(out ImportedTimelineProfile? profile)
@@ -497,11 +499,29 @@ public static class ImportedTimelineRuntime
 	private static bool TryPrepareActiveProfile(out ImportedTimelineProfile? profile, out float combatTime)
 	{
 		combatTime = 0;
+		profile = null;
 
-		if (!DataCenter.InCombat || DataCenter.CurrentRotation == null)
+		if (DataCenter.CurrentRotation == null)
 		{
 			ResetState();
-			profile = null;
+			return false;
+		}
+
+		var now = DateTime.Now;
+		var countdownTime = Service.CountDownTime;
+		var isCountdownActive = !DataCenter.InCombat && countdownTime > 0;
+		if (isCountdownActive)
+		{
+			_lastCountdownObservedTime = now;
+		}
+
+		var isCountdownJustFinished = !DataCenter.InCombat
+			&& _lastCountdownObservedTime != DateTime.MinValue
+			&& now - _lastCountdownObservedTime <= TimeSpan.FromSeconds(CountdownEndGraceSeconds);
+
+		if (!DataCenter.InCombat && !isCountdownActive && !isCountdownJustFinished)
+		{
+			ResetState();
 			return false;
 		}
 
@@ -512,10 +532,20 @@ public static class ImportedTimelineRuntime
 		}
 
 		var signature = BuildActiveProfileSignature(profile.ProfileId, territoryType);
-		combatTime = DataCenter.CombatTimeRaw;
+		combatTime = DataCenter.InCombat
+			? DataCenter.CombatTimeRaw
+			: isCountdownActive
+				? -countdownTime
+				: 0;
+
 		if (_activeProfileSignature != signature || combatTime + 0.01f < _lastCombatTime)
 		{
 			ResetState(signature);
+		}
+
+		if (isCountdownActive)
+		{
+			_lastCountdownObservedTime = now;
 		}
 
 		_lastCombatTime = combatTime;
@@ -648,6 +678,7 @@ public static class ImportedTimelineRuntime
 		_activeProfileSignature = signature;
 		_nextActionIndex = 0;
 		_lastObservedActionTime = DateTime.Now;
+		_lastCountdownObservedTime = DateTime.MinValue;
 		_lastCombatTime = 0;
 	}
 }

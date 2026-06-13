@@ -217,7 +217,25 @@ public partial class CustomRotation
 			var countDown = Service.CountDownTime;
 			if (countDown > 0 && !DataCenter.InCombat)
 			{
-				return CountDownAction(countDown);
+				if (RotationSolver.Basic.TimelineProfiles.ImportedTimelineRuntime.TryGetScheduledGCD(out var scheduledGcd))
+				{
+					gcdAction = scheduledGcd;
+					return scheduledGcd;
+				}
+
+				if (RotationSolver.Basic.TimelineProfiles.ImportedTimelineRuntime.TryGetScheduledAbility(out var scheduledAbility))
+				{
+					return scheduledAbility;
+				}
+
+				var countdownAction = CountDownAction(countDown);
+				if (countdownAction is IBaseAction countdownBaseAction
+					&& RotationSolver.Basic.TimelineProfiles.ImportedTimelineRuntime.ShouldDeferToScheduledAction(countdownAction, countdownBaseAction.Info.IsRealGCD))
+				{
+					return null;
+				}
+
+				return countdownAction;
 			}
 
 			// Reset target override
