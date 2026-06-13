@@ -10,6 +10,8 @@ public static class ImportedTimelineManager
 	private const string ProfileFormat = "RotationSolverTimelineProfile";
 	private static Dictionary<string, ImportedTimelineProfile> _profiles = new(StringComparer.OrdinalIgnoreCase);
 
+	public readonly record struct TimelineProfileAssignment(uint TerritoryType, Job Job, CombatType CombatType, string ProfileId);
+
 	public static string ProfilesDirectory
 	{
 		get
@@ -166,6 +168,84 @@ public static class ImportedTimelineManager
 		return [.. territories];
 	}
 
+	public static TimelineProfileAssignment[] GetAssignments(string profileId)
+	{
+		if (string.IsNullOrWhiteSpace(profileId) || Service.Config.DutyTimelineProfileChoice == null)
+		{
+			return [];
+		}
+
+		List<TimelineProfileAssignment> assignments = [];
+		foreach (var pair in Service.Config.DutyTimelineProfileChoice)
+		{
+			if (string.Equals(pair.Value, profileId, StringComparison.OrdinalIgnoreCase)
+				&& TryParseDutyTimelineProfileChoiceKey(pair.Key, out var territoryType, out var job, out var combatType))
+			{
+				assignments.Add(new TimelineProfileAssignment(territoryType, job, combatType, profileId));
+			}
+		}
+
+		return [.. assignments
+			.OrderBy(assignment => assignment.CombatType)
+			.ThenBy(assignment => assignment.Job)
+			.ThenBy(assignment => assignment.TerritoryType)];
+	}
+
+	public static bool DeleteProfile(string profileId)
+	{
+		if (string.IsNullOrWhiteSpace(profileId))
+		{
+			return false;
+		}
+
+		if (!_profiles.Remove(profileId, out _))
+		{
+			return false;
+		}
+
+		if (Service.Config.DutyTimelineProfileChoice != null)
+		{
+			foreach (var pair in Service.Config.DutyTimelineProfileChoice.Where(pair => string.Equals(pair.Value, profileId, StringComparison.OrdinalIgnoreCase)).ToArray())
+			{
+				Service.Config.DutyTimelineProfileChoice.TryRemove(pair.Key, out _);
+			}
+		}
+
+		if (ImportedTimelineRuntime.IsUsingProfile(profileId))
+		{
+			ImportedTimelineRuntime.Reset();
+		}
+
+		foreach (var filePath in Directory.EnumerateFiles(ProfilesDirectory, "*.json", SearchOption.TopDirectoryOnly))
+		{
+			try
+			{
+				var profile = ReadProfile(filePath);
+				if (string.Equals(profile.ProfileId, profileId, StringComparison.OrdinalIgnoreCase))
+				{
+					File.Delete(filePath);
+					break;
+				}
+			}
+			catch
+			{
+				// Ignore unrelated invalid files while looking for the profile file.
+			}
+		}
+
+		if (Service.Config.DutyTimelineProfileTestTerritory != 0)
+		{
+			var combatType = DataCenter.IsPvP ? CombatType.PvP : CombatType.PvE;
+			if (TryGetDutyTimelineProfileChoice(Service.Config.DutyTimelineProfileTestTerritory, DataCenter.Job, combatType, out var assignedProfileId)
+				&& string.Equals(assignedProfileId, profileId, StringComparison.OrdinalIgnoreCase))
+			{
+				Service.Config.DutyTimelineProfileTestTerritory = 0;
+			}
+		}
+
+		return true;
+	}
+
 	private static string GetDutyTimelineProfileChoiceKey(uint territoryType, Job job, CombatType combatType)
 		=> $"{territoryType}:{(int)job}:{(int)combatType}";
 
@@ -308,6 +388,10 @@ public static class ImportedTimelineRuntime
 
 	public static bool TryGetActiveProfile(out ImportedTimelineProfile? profile)
 		=> TryGetActiveProfile(out _, out profile);
+
+	internal static bool IsUsingProfile(string profileId)
+		=> !string.IsNullOrWhiteSpace(profileId)
+			&& string.Equals(_activeProfileSignature.Split(':').FirstOrDefault(), profileId, StringComparison.OrdinalIgnoreCase);
 
 	private static bool TryGetActiveProfile(out uint territoryType, out ImportedTimelineProfile? profile)
 	{
@@ -488,6 +572,9 @@ public static class ImportedTimelineRuntime
 
 	private static string BuildActiveProfileSignature(string profileId, uint territoryType)
 		=> $"{profileId}:{territoryType}:{(int)DataCenter.Job}:{(int)(DataCenter.IsPvP ? CombatType.PvP : CombatType.PvE)}";
+
+	internal static void Reset()
+		=> ResetState();
 
 	private static void ResetState(string signature = "")
 	{

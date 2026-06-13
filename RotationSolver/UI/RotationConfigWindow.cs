@@ -52,6 +52,8 @@ public partial class RotationConfigWindow : Window
 	private static string _importedTimelineImportPath = string.Empty;
 	private static uint _preDutyConfigTerritory = 0;
 	private static (uint TerritoryType, string DisplayName)[]? _preDutyConfigTerritoryOptions;
+	private static string _preDutyTerritorySearch = string.Empty;
+	private static string _importedTimelineLibrarySearch = string.Empty;
 
 	// Cache for remote logo texture to avoid per-frame retrieval
 	private IDalamudTextureWrap? _logoTexture;
@@ -1078,25 +1080,58 @@ public partial class RotationConfigWindow : Window
 		ImGui.TextWrapped("Select a duty to configure before entering");
 		ImGui.SetNextItemWidth(Math.Max(comboSize, 320 * Scale));
 		var previewName = selectedTerritory != 0 ? GetTerritoryDisplayName(selectedTerritory) : "Choose a duty...";
+		ImGui.SetNextWindowSizeConstraints(new Vector2(Math.Max(comboSize, 320 * Scale), 0), new Vector2(Math.Max(comboSize, 520 * Scale), 420 * Scale));
 		if (ImGui.BeginCombo("##PreDutyConfigTerritory", previewName))
 		{
-			foreach (var territory in territories)
+			ImGui.SetNextItemWidth(-1);
+			_ = ImGui.InputTextWithHint("##PreDutyTerritorySearch", "Filter duties by name or territory id", ref _preDutyTerritorySearch, 128);
+
+			ImGui.Spacing();
+			var childHeight = Math.Min(280 * Scale, Math.Max(160 * Scale, ImGui.GetTextLineHeightWithSpacing() * 10));
+			if (ImGui.BeginChild("##PreDutyTerritoryList", new Vector2(0, childHeight), true))
 			{
-				var label = territory.DisplayName;
-				if (territory.TerritoryType == selectedTerritory)
+				foreach (var territory in territories)
 				{
-					label += " (selected)";
+					if (!IsMatchingPreDutyTerritorySearch(territory, _preDutyTerritorySearch))
+					{
+						continue;
+					}
+
+					var label = territory.DisplayName;
+					if (territory.TerritoryType == selectedTerritory)
+					{
+						label += " (selected)";
+					}
+
+					if (ImGui.Selectable(label, territory.TerritoryType == selectedTerritory))
+					{
+						_preDutyConfigTerritory = territory.TerritoryType;
+						_preDutyTerritorySearch = string.Empty;
+					}
 				}
 
-				if (ImGui.Selectable(label, territory.TerritoryType == selectedTerritory))
-				{
-					_preDutyConfigTerritory = territory.TerritoryType;
-				}
+				ImGui.EndChild();
 			}
 
 			ImGui.EndCombo();
 		}
-		ImguiTooltips.HoveredTooltip("Select a duty territory, then configure the section below.");
+		ImguiTooltips.HoveredTooltip("Select a duty territory, then configure the section below. Use the filter box to narrow the list by duty name or territory id.");
+	}
+
+	private static bool IsMatchingPreDutyTerritorySearch((uint TerritoryType, string DisplayName) territory, string search)
+	{
+		if (string.IsNullOrWhiteSpace(search))
+		{
+			return true;
+		}
+
+		var trimmed = search.Trim();
+		if (territory.DisplayName.Contains(trimmed, StringComparison.CurrentCultureIgnoreCase))
+		{
+			return true;
+		}
+
+		return territory.TerritoryType.ToString().Contains(trimmed, StringComparison.OrdinalIgnoreCase);
 	}
 
 	private void DrawDutyCustomRotationFieldTest(float comboSize, ICustomRotation[] rotations)
@@ -1238,6 +1273,7 @@ public partial class RotationConfigWindow : Window
 
 		ImGui.TextWrapped($"Loaded profiles: {profiles.Length}");
 		ImGui.TextWrapped("Import only adds a timeline profile to the library. Choose a target duty below to assign it.");
+		DrawImportedTimelineLibrary(comboSize, profiles);
 
 		var job = Player.Job;
 		var territoryType = DataCenter.IsInDuty ? Svc.ClientState.TerritoryType : 0u;
@@ -1343,6 +1379,97 @@ public partial class RotationConfigWindow : Window
 		ImguiTooltips.HoveredTooltip(territories.Length == 0
 			? "No imported timeline profile is assigned to a duty yet. Assign one above, then enable field testing here."
 			: "Applies the selected imported timeline profile in normal field areas for testing. The current rotation still handles unscheduled actions, and real duty assignments still take priority while inside the duty.");
+	}
+
+	private void DrawImportedTimelineLibrary(float comboSize, ImportedTimelineProfile[] profiles)
+	{
+		ImGui.Separator();
+		ImGui.TextWrapped("Imported timeline library");
+		ImGui.SetNextItemWidth(Math.Max(comboSize, 320 * Scale));
+		_ = ImGui.InputTextWithHint("##ImportedTimelineLibrarySearch", "Filter imported timelines", ref _importedTimelineLibrarySearch, 128);
+
+		var listHeight = Math.Min(260 * Scale, Math.Max(140 * Scale, ImGui.GetTextLineHeightWithSpacing() * 8));
+		if (ImGui.BeginChild("##ImportedTimelineLibrary", new Vector2(0, listHeight), true))
+		{
+			foreach (var profile in profiles)
+			{
+				if (!IsMatchingImportedTimelineSearch(profile, _importedTimelineLibrarySearch))
+				{
+					continue;
+				}
+
+				DrawImportedTimelineLibraryEntry(profile);
+			}
+
+			ImGui.EndChild();
+		}
+		ImguiTooltips.HoveredTooltip("Review imported timeline profiles, inspect current duty assignments, and delete old entries.");
+	}
+
+	private void DrawImportedTimelineLibraryEntry(ImportedTimelineProfile profile)
+	{
+		var assignments = ImportedTimelineManager.GetAssignments(profile.ProfileId);
+		var header = GetImportedTimelineProfileLabel(profile);
+		if (assignments.Length > 0)
+		{
+			header += $" ({assignments.Length} assignments)";
+		}
+
+		if (ImGui.TreeNode($"{header}##ImportedTimelineProfile:{profile.ProfileId}"))
+		{
+			ImGui.TextWrapped(GetImportedTimelineProfileTooltip(profile));
+
+			if (assignments.Length == 0)
+			{
+				ImGui.TextWrapped("Assigned duties: none");
+			}
+			else
+			{
+				ImGui.TextWrapped("Assigned duties:");
+				foreach (var assignment in assignments)
+				{
+					var label = $"{GetTerritoryDisplayName(assignment.TerritoryType)} [{assignment.Job}]";
+					if (assignment.CombatType != CombatType.PvE)
+					{
+						label += $" ({assignment.CombatType})";
+					}
+
+					ImGui.BulletText(label);
+				}
+			}
+
+			if (ImGui.Button($"Delete##ImportedTimelineDelete:{profile.ProfileId}"))
+			{
+				if (ImportedTimelineManager.DeleteProfile(profile.ProfileId))
+				{
+					Service.Config.Save();
+					Svc.Toasts.ShowNormal($"Deleted imported timeline profile: {profile.ProfileName}");
+				}
+				else
+				{
+					Svc.Toasts.ShowNormal("Failed to delete imported timeline profile.");
+				}
+			}
+			ImguiTooltips.HoveredTooltip("Delete this imported timeline profile and remove all of its duty assignments.");
+
+			ImGui.TreePop();
+		}
+	}
+
+	private static bool IsMatchingImportedTimelineSearch(ImportedTimelineProfile profile, string search)
+	{
+		if (string.IsNullOrWhiteSpace(search))
+		{
+			return true;
+		}
+
+		var trimmed = search.Trim();
+		return profile.ProfileName.Contains(trimmed, StringComparison.CurrentCultureIgnoreCase)
+			|| profile.ProfileId.Contains(trimmed, StringComparison.OrdinalIgnoreCase)
+			|| (!string.IsNullOrWhiteSpace(profile.Source.FightName)
+				&& profile.Source.FightName.Contains(trimmed, StringComparison.CurrentCultureIgnoreCase))
+			|| (!string.IsNullOrWhiteSpace(profile.Source.SourceJob)
+				&& profile.Source.SourceJob.Contains(trimmed, StringComparison.CurrentCultureIgnoreCase));
 	}
 
 	private static string GetImportedTimelineProfilePreviewName(string? profileId, string fallback)
