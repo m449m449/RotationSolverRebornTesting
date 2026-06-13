@@ -1359,6 +1359,7 @@ internal partial class Configs : IPluginConfiguration
 	public ConcurrentDictionary<string, string> DutyCustomRotationChoice = new();
 	public uint DutyCustomRotationTestTerritory = 0;
 	public ConcurrentDictionary<string, string> DutyTimelineProfileChoice = new();
+	public uint DutyTimelineProfileTestTerritory = 0;
 
 	public ConcurrentDictionary<uint, string> DutyRotationChoice = new();
 

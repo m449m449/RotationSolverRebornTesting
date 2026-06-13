@@ -848,6 +848,7 @@ public partial class RotationConfigWindow : Window
 			DrawDutyCustomRotationOverride(comboSize, rotations);
 			DrawDutyCustomRotationFieldTest(comboSize, rotations);
 			DrawImportedTimelineSection(comboSize);
+			DrawImportedTimelineFieldTest(comboSize);
 		}
 
 		if (BMRTimeline_IPCSubscriber.IsEnabled)
@@ -1288,6 +1289,60 @@ public partial class RotationConfigWindow : Window
 		}
 	}
 
+	private void DrawImportedTimelineFieldTest(float comboSize)
+	{
+		if (DataCenter.IsPvP || DataCenter.IsInDuty)
+		{
+			return;
+		}
+
+		var job = Player.Job;
+		var territories = ImportedTimelineManager.GetDutyTimelineProfileTerritories(job, CombatType.PvE);
+		if (territories.Length == 0)
+		{
+			return;
+		}
+
+		var selectedTerritory = Service.Config.DutyTimelineProfileTestTerritory;
+		var hasSelectedTerritory = Array.IndexOf(territories, selectedTerritory) >= 0;
+		ImportedTimelineManager.TryGetDutyTimelineProfileChoice(selectedTerritory, job, CombatType.PvE, out var profileId);
+
+		var previewName = "Disabled";
+		if (hasSelectedTerritory)
+		{
+			previewName = GetTerritoryDisplayName(selectedTerritory);
+			previewName += $" - {GetImportedTimelineProfilePreviewName(profileId, "Disabled")}";
+		}
+
+		ImGui.Separator();
+		ImGui.TextWrapped("Field test using a configured imported timeline profile");
+		ImGui.SetNextItemWidth(Math.Max(comboSize, 320 * Scale));
+		var comboId = $"##ImportedTimelineFieldTest:{(int)job}";
+		if (ImGui.BeginCombo(comboId, previewName))
+		{
+			if (ImGui.Selectable("Disabled", !hasSelectedTerritory))
+			{
+				Service.Config.DutyTimelineProfileTestTerritory = 0;
+				Service.Config.Save();
+			}
+
+			foreach (var territoryType in territories)
+			{
+				ImportedTimelineManager.TryGetDutyTimelineProfileChoice(territoryType, job, CombatType.PvE, out var choice);
+				var label = GetTerritoryDisplayName(territoryType);
+				label += $" - {GetImportedTimelineProfilePreviewName(choice, "Disabled")}";
+				if (ImGui.Selectable(label, territoryType == selectedTerritory))
+				{
+					Service.Config.DutyTimelineProfileTestTerritory = territoryType;
+					Service.Config.Save();
+				}
+			}
+
+			ImGui.EndCombo();
+		}
+		ImguiTooltips.HoveredTooltip("Applies the selected imported timeline profile in normal field areas for testing. The current rotation still handles unscheduled actions, and real duty assignments still take priority while inside the duty.");
+	}
+
 	private static string GetImportedTimelineProfilePreviewName(string? profileId, string fallback)
 	{
 		if (!string.IsNullOrWhiteSpace(profileId) && ImportedTimelineManager.TryGetProfile(profileId, out var profile) && profile != null)
@@ -1351,6 +1406,13 @@ public partial class RotationConfigWindow : Window
 			&& Array.Exists(territories, territory => territory.TerritoryType == Service.Config.DutyCustomRotationTestTerritory))
 		{
 			_preDutyConfigTerritory = Service.Config.DutyCustomRotationTestTerritory;
+			return _preDutyConfigTerritory;
+		}
+
+		if (Service.Config.DutyTimelineProfileTestTerritory != 0
+			&& Array.Exists(territories, territory => territory.TerritoryType == Service.Config.DutyTimelineProfileTestTerritory))
+		{
+			_preDutyConfigTerritory = Service.Config.DutyTimelineProfileTestTerritory;
 			return _preDutyConfigTerritory;
 		}
 

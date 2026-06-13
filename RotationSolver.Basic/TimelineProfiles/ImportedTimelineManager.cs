@@ -137,8 +137,47 @@ public static class ImportedTimelineManager
 		}
 	}
 
+	public static uint[] GetDutyTimelineProfileTerritories(Job job, CombatType combatType)
+	{
+		SortedSet<uint> territories = [];
+		foreach (var pair in Service.Config.DutyTimelineProfileChoice)
+		{
+			if (!string.IsNullOrWhiteSpace(pair.Value)
+				&& TryParseDutyTimelineProfileChoiceKey(pair.Key, out var territoryType, out var keyJob, out var keyCombatType)
+				&& keyJob == job
+				&& keyCombatType == combatType)
+			{
+				territories.Add(territoryType);
+			}
+		}
+
+		return [.. territories];
+	}
+
 	private static string GetDutyTimelineProfileChoiceKey(uint territoryType, Job job, CombatType combatType)
 		=> $"{territoryType}:{(int)job}:{(int)combatType}";
+
+	private static bool TryParseDutyTimelineProfileChoiceKey(string key, out uint territoryType, out Job job, out CombatType combatType)
+	{
+		territoryType = 0;
+		job = Job.ADV;
+		combatType = CombatType.None;
+
+		var parts = key.Split(':');
+		if (parts.Length != 3
+			|| !uint.TryParse(parts[0], out territoryType)
+			|| !int.TryParse(parts[1], out var jobValue)
+			|| !int.TryParse(parts[2], out var combatTypeValue)
+			|| !Enum.IsDefined(typeof(Job), jobValue)
+			|| !Enum.IsDefined(typeof(CombatType), combatTypeValue))
+		{
+			return false;
+		}
+
+		job = (Job)jobValue;
+		combatType = (CombatType)combatTypeValue;
+		return true;
+	}
 
 	private static ImportedTimelineProfile ReadProfile(string filePath)
 	{
@@ -256,15 +295,18 @@ public static class ImportedTimelineRuntime
 	private static float _lastCombatTime;
 
 	public static bool TryGetActiveProfile(out ImportedTimelineProfile? profile)
+		=> TryGetActiveProfile(out _, out profile);
+
+	private static bool TryGetActiveProfile(out uint territoryType, out ImportedTimelineProfile? profile)
 	{
 		profile = null;
-		if (!DataCenter.IsInDuty || Svc.ClientState.TerritoryType == 0)
+		if (!TryGetActiveTerritoryType(out territoryType))
 		{
 			return false;
 		}
 
 		var combatType = DataCenter.IsPvP ? CombatType.PvP : CombatType.PvE;
-		return ImportedTimelineManager.TryGetAssignedProfile(Svc.ClientState.TerritoryType, DataCenter.Job, combatType, out profile);
+		return ImportedTimelineManager.TryGetAssignedProfile(territoryType, DataCenter.Job, combatType, out profile);
 	}
 
 	public static bool TryGetScheduledGCD(out IAction? act)
@@ -277,19 +319,19 @@ public static class ImportedTimelineRuntime
 	{
 		act = null;
 
-		if (!DataCenter.IsInDuty || !DataCenter.InCombat || DataCenter.CurrentRotation == null)
+		if (!DataCenter.InCombat || DataCenter.CurrentRotation == null)
 		{
 			ResetState();
 			return false;
 		}
 
-		if (!TryGetActiveProfile(out var profile) || profile == null || profile.Actions.Count == 0)
+		if (!TryGetActiveProfile(out var territoryType, out var profile) || profile == null || profile.Actions.Count == 0)
 		{
 			ResetState();
 			return false;
 		}
 
-		var signature = BuildActiveProfileSignature(profile.ProfileId);
+		var signature = BuildActiveProfileSignature(profile.ProfileId, territoryType);
 		var combatTime = DataCenter.CombatTimeRaw;
 		if (_activeProfileSignature != signature || combatTime + 0.01f < _lastCombatTime)
 		{
@@ -414,8 +456,26 @@ public static class ImportedTimelineRuntime
 			?? id.GetActionFromID(false, rotationActions, dutyActions);
 	}
 
-	private static string BuildActiveProfileSignature(string profileId)
-		=> $"{profileId}:{Svc.ClientState.TerritoryType}:{(int)DataCenter.Job}:{(int)(DataCenter.IsPvP ? CombatType.PvP : CombatType.PvE)}";
+	private static bool TryGetActiveTerritoryType(out uint territoryType)
+	{
+		if (DataCenter.IsInDuty && Svc.ClientState.TerritoryType != 0)
+		{
+			territoryType = Svc.ClientState.TerritoryType;
+			return true;
+		}
+
+		if (!DataCenter.IsPvP && Service.Config.DutyTimelineProfileTestTerritory != 0)
+		{
+			territoryType = Service.Config.DutyTimelineProfileTestTerritory;
+			return true;
+		}
+
+		territoryType = 0;
+		return false;
+	}
+
+	private static string BuildActiveProfileSignature(string profileId, uint territoryType)
+		=> $"{profileId}:{territoryType}:{(int)DataCenter.Job}:{(int)(DataCenter.IsPvP ? CombatType.PvP : CombatType.PvE)}";
 
 	private static void ResetState(string signature = "")
 	{
