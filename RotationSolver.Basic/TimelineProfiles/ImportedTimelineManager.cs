@@ -386,11 +386,13 @@ public static class ImportedTimelineRuntime
 	private const float AssistLeadSeconds = 10.0f;
 	private const float MissWindowSeconds = 6.0f;
 	private const float CountdownEndGraceSeconds = 2.0f;
+	private const float SyncLeadSeconds = ExecuteLeadSeconds;
 	private static string _activeProfileSignature = string.Empty;
 	private static int _nextActionIndex;
 	private static DateTime _lastObservedActionTime = DateTime.Now;
 	private static DateTime _lastCountdownObservedTime = DateTime.MinValue;
 	private static float _lastCombatTime;
+	private static readonly HashSet<int> _completedActionIndices = [];
 
 	public static bool TryGetActiveProfile(out ImportedTimelineProfile? profile)
 		=> TryGetActiveProfile(out _, out profile);
@@ -436,6 +438,11 @@ public static class ImportedTimelineRuntime
 
 		for (var index = _nextActionIndex; index < profile.Actions.Count; index++)
 		{
+			if (_completedActionIndices.Contains(index))
+			{
+				continue;
+			}
+
 			var entry = profile.Actions[index];
 			if (combatTime > entry.CombatTimeSeconds + MissWindowSeconds)
 			{
@@ -472,6 +479,11 @@ public static class ImportedTimelineRuntime
 
 		for (var index = _nextActionIndex; index < profile.Actions.Count; index++)
 		{
+			if (_completedActionIndices.Contains(index))
+			{
+				continue;
+			}
+
 			var entry = profile.Actions[index];
 			if (combatTime + ExecuteLeadSeconds < entry.CombatTimeSeconds)
 			{
@@ -702,7 +714,7 @@ public static class ImportedTimelineRuntime
 
 		_lastCombatTime = combatTime;
 		SyncWithRecentActions(profile, combatTime);
-		AdvanceExpiredActions(profile, combatTime);
+		AdvanceCompletedOrExpiredActions(profile, combatTime);
 		return true;
 	}
 
@@ -734,15 +746,19 @@ public static class ImportedTimelineRuntime
 			var latestActionId = record.Action.RowId;
 			for (var index = _nextActionIndex; index < profile.Actions.Count; index++)
 			{
+				if (_completedActionIndices.Contains(index))
+				{
+					continue;
+				}
+
 				var entry = profile.Actions[index];
-				if (combatTime < entry.CombatTimeSeconds - AssistLeadSeconds)
+				if (combatTime < entry.CombatTimeSeconds - SyncLeadSeconds)
 				{
 					break;
 				}
 
 				if (combatTime > entry.CombatTimeSeconds + MissWindowSeconds)
 				{
-					_nextActionIndex = index + 1;
 					continue;
 				}
 
@@ -753,20 +769,28 @@ public static class ImportedTimelineRuntime
 
 				if (DoesEntryMatchAction(entry, latestActionId))
 				{
-					_nextActionIndex = index + 1;
+					_completedActionIndices.Add(index);
 					break;
 				}
 			}
+
+			AdvanceCompletedOrExpiredActions(profile, combatTime);
 		}
 
 		_lastObservedActionTime = newRecords[^1].UsedTime;
 	}
 
-	private static void AdvanceExpiredActions(ImportedTimelineProfile profile, float combatTime)
+	private static void AdvanceCompletedOrExpiredActions(ImportedTimelineProfile profile, float combatTime)
 	{
 		while (_nextActionIndex < profile.Actions.Count)
 		{
 			var entry = profile.Actions[_nextActionIndex];
+			if (_completedActionIndices.Remove(_nextActionIndex))
+			{
+				_nextActionIndex++;
+				continue;
+			}
+
 			if (combatTime <= entry.CombatTimeSeconds + MissWindowSeconds)
 			{
 				break;
@@ -777,7 +801,7 @@ public static class ImportedTimelineRuntime
 	}
 
 	private static bool IsWithinTrackingWindow(ImportedTimelineAction entry, float combatTime)
-		=> combatTime >= entry.CombatTimeSeconds - AssistLeadSeconds
+		=> combatTime >= entry.CombatTimeSeconds - SyncLeadSeconds
 			&& combatTime <= entry.CombatTimeSeconds + MissWindowSeconds;
 
 	private static bool DoesEntryMatchAction(ImportedTimelineAction entry, uint actionId)
@@ -847,5 +871,6 @@ public static class ImportedTimelineRuntime
 		_lastObservedActionTime = DateTime.Now;
 		_lastCountdownObservedTime = DateTime.MinValue;
 		_lastCombatTime = 0;
+		_completedActionIndices.Clear();
 	}
 }
