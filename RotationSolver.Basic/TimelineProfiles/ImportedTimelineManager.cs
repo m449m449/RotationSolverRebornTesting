@@ -1,7 +1,10 @@
 using ECommons.DalamudServices;
 using ECommons.ExcelServices;
+using ECommons.GameHelpers;
 using ECommons.Logging;
+using Dalamud.Game.ClientState.Objects.SubKinds;
 using RotationSolver.Basic.Data;
+using RotationSolver.Basic.Helpers;
 
 namespace RotationSolver.Basic.TimelineProfiles;
 
@@ -500,6 +503,11 @@ public static class ImportedTimelineRuntime
 				{
 					return true;
 				}
+
+				if (wantsGcd && TryUseScheduledGcdFallback(action, out act))
+				{
+					return true;
+				}
 			}
 			finally
 			{
@@ -509,6 +517,136 @@ public static class ImportedTimelineRuntime
 
 		return false;
 	}
+
+	private static bool TryUseScheduledGcdFallback(IBaseAction action, out IAction? act)
+	{
+		act = null;
+
+		if (Player.Object == null)
+		{
+			return false;
+		}
+
+		if (!ActionHelper.CanUseGCD || !action.Cooldown.CooldownCheck(true, 0))
+		{
+			return false;
+		}
+
+		if (!action.Info.BasicCheck(
+			skipStatusProvideCheck: true,
+			skipStatusNeed: false,
+			skipComboCheck: true,
+			skipCastingCheck: false))
+		{
+			return false;
+		}
+
+		if (TryAssignScheduledHostileTarget(action) || TryAssignScheduledSelfExecutedTarget(action))
+		{
+			act = action;
+			return true;
+		}
+
+		return false;
+	}
+
+	private static bool TryAssignScheduledHostileTarget(IBaseAction action)
+	{
+		if (!IsTargetedHostileAction(action))
+		{
+			return false;
+		}
+
+		if (!TryGetScheduledHostileTarget(action, out var target) || target == null)
+		{
+			return false;
+		}
+
+		action.Target = new TargetResult(target, [], target.Position);
+		return true;
+	}
+
+	private static bool TryGetScheduledHostileTarget(IBaseAction action, out IBattleChara? target)
+	{
+		target = null;
+
+		if (Svc.Targets.Target is IBattleChara currentTarget && IsValidScheduledHostileTarget(action, currentTarget))
+		{
+			target = currentTarget;
+			return true;
+		}
+
+		var hostileTarget = DataCenter.HostileTarget;
+		if (hostileTarget != null && IsValidScheduledHostileTarget(action, hostileTarget))
+		{
+			target = hostileTarget;
+			return true;
+		}
+
+		var hostiles = DataCenter.AllHostileTargets;
+		for (var i = 0; i < hostiles.Count; i++)
+		{
+			if (IsValidScheduledHostileTarget(action, hostiles[i]))
+			{
+				target = hostiles[i];
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private static bool IsValidScheduledHostileTarget(IBaseAction action, IBattleChara target)
+	{
+		if (!IsKnownHostileTarget(target))
+		{
+			return false;
+		}
+
+		if (target.DistanceToPlayer() > action.TargetInfo.Range)
+		{
+			return false;
+		}
+
+		return action.Setting.CanTarget(target);
+	}
+
+	private static bool IsKnownHostileTarget(IBattleChara target)
+	{
+		var hostiles = DataCenter.AllHostileTargets;
+		for (var i = 0; i < hostiles.Count; i++)
+		{
+			if (hostiles[i].GameObjectId == target.GameObjectId)
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private static bool TryAssignScheduledSelfExecutedTarget(IBaseAction action)
+	{
+		if (!IsSelfExecutedHostileAction(action) || Player.Object == null)
+		{
+			return false;
+		}
+
+		action.Target = new TargetResult(Player.Object, [], Player.Object.Position);
+		return true;
+	}
+
+	private static bool IsTargetedHostileAction(IBaseAction action)
+		=> action.TargetInfo.Range > 0
+			&& !action.TargetInfo.IsTargetArea
+			&& !action.Setting.IsFriendly;
+
+	private static bool IsSelfExecutedHostileAction(IBaseAction action)
+		=> action.TargetInfo.Range == 0
+			&& action.TargetInfo.EffectRange > 0
+			&& !action.TargetInfo.IsSingleTarget
+			&& !action.TargetInfo.IsTargetArea
+			&& !action.Setting.IsFriendly;
 
 	private static bool TryPrepareActiveProfile(out ImportedTimelineProfile? profile, out float combatTime)
 	{
