@@ -412,32 +412,53 @@ public static class ImportedTimelineRuntime
 	public static bool TryGetScheduledAbility(out IAction? act)
 		=> TryGetScheduledAction(false, out act);
 
+	internal static bool ShouldDeferToScheduledAction(IAction? candidate, bool wantsGcd)
+	{
+		if (candidate == null)
+		{
+			return false;
+		}
+
+		if (candidate is not IBaseAction action || action.Info.IsRealGCD != wantsGcd)
+		{
+			return false;
+		}
+
+		if (!TryPrepareActiveProfile(out var profile, out var combatTime) || profile == null)
+		{
+			return false;
+		}
+
+		for (var index = _nextActionIndex; index < profile.Actions.Count; index++)
+		{
+			var entry = profile.Actions[index];
+			if (combatTime > entry.CombatTimeSeconds + MissWindowSeconds)
+			{
+				continue;
+			}
+
+			if (entry.CombatTimeSeconds > combatTime + AssistLeadSeconds)
+			{
+				break;
+			}
+
+			if (DoesEntryMatchAction(entry, action))
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	private static bool TryGetScheduledAction(bool wantsGcd, out IAction? act)
 	{
 		act = null;
 
-		if (!DataCenter.InCombat || DataCenter.CurrentRotation == null)
+		if (!TryPrepareActiveProfile(out var profile, out var combatTime) || profile == null)
 		{
-			ResetState();
 			return false;
 		}
-
-		if (!TryGetActiveProfile(out var territoryType, out var profile) || profile == null || profile.Actions.Count == 0)
-		{
-			ResetState();
-			return false;
-		}
-
-		var signature = BuildActiveProfileSignature(profile.ProfileId, territoryType);
-		var combatTime = DataCenter.CombatTimeRaw;
-		if (_activeProfileSignature != signature || combatTime + 0.01f < _lastCombatTime)
-		{
-			ResetState(signature);
-		}
-
-		_lastCombatTime = combatTime;
-		SyncWithRecentActions(profile, combatTime);
-		AdvanceExpiredActions(profile, combatTime);
 
 		if (_nextActionIndex >= profile.Actions.Count)
 		{
@@ -471,6 +492,36 @@ public static class ImportedTimelineRuntime
 		{
 			IBaseAction.ForceEnable = false;
 		}
+	}
+
+	private static bool TryPrepareActiveProfile(out ImportedTimelineProfile? profile, out float combatTime)
+	{
+		combatTime = 0;
+
+		if (!DataCenter.InCombat || DataCenter.CurrentRotation == null)
+		{
+			ResetState();
+			profile = null;
+			return false;
+		}
+
+		if (!TryGetActiveProfile(out var territoryType, out profile) || profile == null || profile.Actions.Count == 0)
+		{
+			ResetState();
+			return false;
+		}
+
+		var signature = BuildActiveProfileSignature(profile.ProfileId, territoryType);
+		combatTime = DataCenter.CombatTimeRaw;
+		if (_activeProfileSignature != signature || combatTime + 0.01f < _lastCombatTime)
+		{
+			ResetState(signature);
+		}
+
+		_lastCombatTime = combatTime;
+		SyncWithRecentActions(profile, combatTime);
+		AdvanceExpiredActions(profile, combatTime);
+		return true;
 	}
 
 	private static void SyncWithRecentActions(ImportedTimelineProfile profile, float combatTime)
@@ -541,6 +592,21 @@ public static class ImportedTimelineRuntime
 
 		var resolved = ResolveAction(entry.Id);
 		return resolved != null && (resolved.ID == actionId || resolved.AdjustedID == actionId);
+	}
+
+	private static bool DoesEntryMatchAction(ImportedTimelineAction entry, IAction action)
+	{
+		if (entry.Id == action.ID || entry.Id == action.AdjustedID)
+		{
+			return true;
+		}
+
+		var resolved = ResolveAction(entry.Id);
+		return resolved != null
+			&& (resolved.ID == action.ID
+				|| resolved.ID == action.AdjustedID
+				|| resolved.AdjustedID == action.ID
+				|| resolved.AdjustedID == action.AdjustedID);
 	}
 
 	private static IAction? ResolveAction(uint actionId)

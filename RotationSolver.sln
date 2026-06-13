@@ -25,8 +25,6 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RotationSolver.SourceGenera
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RotationSolver.GameData", "RotationSolver.GameData\RotationSolver.GameData.csproj", "{FE8D8078-67F6-473E-9076-B01C62F5B937}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RotationSolver.TimelineExtractor", "RotationSolver.TimelineExtractor\RotationSolver.TimelineExtractor.csproj", "{28AA405F-C7B4-4F7E-8A6A-D9D6C95C546B}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -49,10 +47,6 @@ Global
 		{FE8D8078-67F6-473E-9076-B01C62F5B937}.Debug|x64.Build.0 = Debug|x64
 		{FE8D8078-67F6-473E-9076-B01C62F5B937}.Release|x64.ActiveCfg = Release|x64
 		{FE8D8078-67F6-473E-9076-B01C62F5B937}.Release|x64.Build.0 = Release|x64
-		{28AA405F-C7B4-4F7E-8A6A-D9D6C95C546B}.Debug|x64.ActiveCfg = Debug|x64
-		{28AA405F-C7B4-4F7E-8A6A-D9D6C95C546B}.Debug|x64.Build.0 = Debug|x64
-		{28AA405F-C7B4-4F7E-8A6A-D9D6C95C546B}.Release|x64.ActiveCfg = Release|x64
-		{28AA405F-C7B4-4F7E-8A6A-D9D6C95C546B}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

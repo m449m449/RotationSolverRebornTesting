@@ -462,12 +462,18 @@ public partial class CustomRotation
 			{
 				if (DataCenter.CurrentDutyRotation?.GeneralGCD(out act) == true)
 				{
-					return act;
+					if (!ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, true))
+					{
+						return act;
+					}
 				}
 
 				if (GeneralGCD(out var action))
 				{
-					return action;
+					if (!ImportedTimelineRuntime.ShouldDeferToScheduledAction(action, true))
+					{
+						return action;
+					}
 				}
 			}
 

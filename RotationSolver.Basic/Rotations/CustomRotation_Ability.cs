@@ -369,23 +369,53 @@ public partial class CustomRotation
 
 		if (HasHostilesInRange && DataCenter.CurrentDutyRotation?.AttackAbility(nextGCD, out act) == true)
 		{
-			return true;
+			if (!ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
+			{
+				return true;
+			}
 		}
 		if (HasHostilesInRange && AttackAbility(nextGCD, out act))
 		{
-			return true;
+			if (!ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
+			{
+				return true;
+			}
 		}
 
 		if (DataCenter.CurrentDutyRotation?.GeneralAbility(nextGCD, out act) == true)
 		{
-			return true;
+			if (!ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
+			{
+				return true;
+			}
 		}
 		if (GeneralAbility(nextGCD, out act))
+		{
+			if (!ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
+			{
+				return true;
+			}
+		}
+
+		if (UseMpPotion(nextGCD, out act) && !ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
 		{
 			return true;
 		}
 
-		return UseMpPotion(nextGCD, out act) || GeneralUsingAbility(role, nextGCD, out act) || (DataCenter.AutoStatus.HasFlag(AutoStatus.Speed) && SpeedAbility(nextGCD, out act));
+		if (GeneralUsingAbility(role, nextGCD, out act) && !ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
+		{
+			return true;
+		}
+
+		if (DataCenter.AutoStatus.HasFlag(AutoStatus.Speed)
+			&& SpeedAbility(nextGCD, out act)
+			&& !ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
+		{
+			return true;
+		}
+
+		act = null;
+		return false;
 	}
 
 	/// <summary>
