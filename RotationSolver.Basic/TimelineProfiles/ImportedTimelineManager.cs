@@ -94,6 +94,12 @@ public static class ImportedTimelineManager
 
 	public static bool TryGetDutyTimelineProfileChoice(uint territoryType, Job job, CombatType combatType, out string? profileId)
 	{
+		if (Service.Config.DutyTimelineProfileChoice == null)
+		{
+			profileId = null;
+			return false;
+		}
+
 		var key = GetDutyTimelineProfileChoiceKey(territoryType, job, combatType);
 		if (territoryType != 0
 			&& Service.Config.DutyTimelineProfileChoice.TryGetValue(key, out var value)
@@ -127,6 +133,7 @@ public static class ImportedTimelineManager
 		}
 
 		var key = GetDutyTimelineProfileChoiceKey(territoryType, job, combatType);
+		Service.Config.DutyTimelineProfileChoice ??= [];
 		if (string.IsNullOrWhiteSpace(profileId))
 		{
 			Service.Config.DutyTimelineProfileChoice.TryRemove(key, out _);
@@ -140,6 +147,11 @@ public static class ImportedTimelineManager
 	public static uint[] GetDutyTimelineProfileTerritories(Job job, CombatType combatType)
 	{
 		SortedSet<uint> territories = [];
+		if (Service.Config.DutyTimelineProfileChoice == null)
+		{
+			return [];
+		}
+
 		foreach (var pair in Service.Config.DutyTimelineProfileChoice)
 		{
 			if (!string.IsNullOrWhiteSpace(pair.Value)

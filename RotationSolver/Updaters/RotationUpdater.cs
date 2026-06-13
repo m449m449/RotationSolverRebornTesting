@@ -305,6 +305,12 @@ internal static class RotationUpdater
 
 	internal static bool TryGetDutyCustomRotationChoice(uint territoryType, Job job, CombatType combatType, out string? choice)
 	{
+		if (Service.Config.DutyCustomRotationChoice == null)
+		{
+			choice = null;
+			return false;
+		}
+
 		var key = GetDutyCustomRotationChoiceKey(territoryType, job, combatType);
 		if (territoryType != 0
 			&& Service.Config.DutyCustomRotationChoice.TryGetValue(key, out var value)
@@ -326,6 +332,7 @@ internal static class RotationUpdater
 		}
 
 		var key = GetDutyCustomRotationChoiceKey(territoryType, job, combatType);
+		Service.Config.DutyCustomRotationChoice ??= [];
 		if (string.IsNullOrWhiteSpace(choice))
 		{
 			Service.Config.DutyCustomRotationChoice.TryRemove(key, out _);
@@ -339,6 +346,11 @@ internal static class RotationUpdater
 	internal static uint[] GetDutyCustomRotationTerritories(Job job, CombatType combatType)
 	{
 		SortedSet<uint> territories = [];
+		if (Service.Config.DutyCustomRotationChoice == null)
+		{
+			return [];
+		}
+
 		foreach (var pair in Service.Config.DutyCustomRotationChoice)
 		{
 			if (!string.IsNullOrWhiteSpace(pair.Value)

@@ -845,10 +845,10 @@ public partial class RotationConfigWindow : Window
 		if (Scale * JOB_ICON_WIDTH < wholeWidth)
 		{
 			DrawRotationCombo(comboSize, rotations, rotation);
-			DrawDutyCustomRotationOverride(comboSize, rotations);
-			DrawDutyCustomRotationFieldTest(comboSize, rotations);
-			DrawImportedTimelineSection(comboSize);
-			DrawImportedTimelineFieldTest(comboSize);
+			TryDrawHeaderSection(() => DrawDutyCustomRotationOverride(comboSize, rotations), "duty custom rotation override");
+			TryDrawHeaderSection(() => DrawDutyCustomRotationFieldTest(comboSize, rotations), "duty custom rotation field test");
+			TryDrawHeaderSection(() => DrawImportedTimelineSection(comboSize), "imported timeline section");
+			TryDrawHeaderSection(() => DrawImportedTimelineFieldTest(comboSize), "imported timeline field test");
 		}
 
 		if (BMRTimeline_IPCSubscriber.IsEnabled)
@@ -857,6 +857,19 @@ public partial class RotationConfigWindow : Window
 			ImGui.TextColored(ImGuiColors.ParsedGreen, "BMR Integration Enabled");
 		}
 	}
+
+	private static void TryDrawHeaderSection(Action draw, string sectionName)
+	{
+		try
+		{
+			draw();
+		}
+		catch (Exception ex)
+		{
+			PluginLog.Warning($"Failed to draw {sectionName}: {ex.Message}");
+		}
+	}
+
 	private static readonly string[] pairsArray = ["Delete"];
 	private static readonly string[] pairs = ["Delete"];
 
@@ -1459,8 +1472,7 @@ public partial class RotationConfigWindow : Window
 		List<(uint TerritoryType, string DisplayName)> territories = [];
 		foreach (var territory in territorySheet)
 		{
-			var contentFinderName = territory.ContentFinderCondition.Value.Name.ExtractText();
-			if (string.IsNullOrWhiteSpace(contentFinderName))
+			if (!TryGetTerritorySelectionName(territory.RowId, out var contentFinderName))
 			{
 				continue;
 			}
@@ -1476,6 +1488,28 @@ public partial class RotationConfigWindow : Window
 
 		_preDutyConfigTerritoryOptions = [.. territories];
 		return _preDutyConfigTerritoryOptions;
+	}
+
+	private static bool TryGetTerritorySelectionName(uint territoryType, out string displayName)
+	{
+		displayName = string.Empty;
+
+		try
+		{
+			var territorySheet = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.TerritoryType>()?.GetRow(territoryType);
+			if (territorySheet == null)
+			{
+				return false;
+			}
+
+			displayName = territorySheet.Value.ContentFinderCondition.Value.Name.ExtractText();
+			return !string.IsNullOrWhiteSpace(displayName);
+		}
+		catch (Exception ex)
+		{
+			PluginLog.Warning($"Failed to read territory selection name for territory {territoryType}: {ex.Message}");
+			return false;
+		}
 	}
 
 	private static bool TryParseDutyScopedChoiceKey(string key, out uint territoryType, out Job job, out CombatType combatType)
@@ -1519,16 +1553,23 @@ public partial class RotationConfigWindow : Window
 		var territorySheet = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.TerritoryType>()?.GetRow(territoryType);
 		if (territorySheet != null)
 		{
-			var contentFinderName = territorySheet.Value.ContentFinderCondition.Value.Name.ExtractText();
-			if (!string.IsNullOrWhiteSpace(contentFinderName))
+			try
 			{
-				return contentFinderName;
-			}
+				var contentFinderName = territorySheet.Value.ContentFinderCondition.Value.Name.ExtractText();
+				if (!string.IsNullOrWhiteSpace(contentFinderName))
+				{
+					return contentFinderName;
+				}
 
-			var placeName = territorySheet.Value.PlaceName.Value.Name.ExtractText();
-			if (!string.IsNullOrWhiteSpace(placeName))
+				var placeName = territorySheet.Value.PlaceName.Value.Name.ExtractText();
+				if (!string.IsNullOrWhiteSpace(placeName))
+				{
+					return placeName;
+				}
+			}
+			catch (Exception ex)
 			{
-				return placeName;
+				PluginLog.Warning($"Failed to resolve territory display name for territory {territoryType}: {ex.Message}");
 			}
 		}
 
