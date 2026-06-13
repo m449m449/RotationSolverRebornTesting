@@ -446,7 +446,7 @@ public static class ImportedTimelineRuntime
 
 			if (DoesEntryMatchAction(entry, action))
 			{
-				return true;
+				return combatTime + ExecuteLeadSeconds < entry.CombatTimeSeconds;
 			}
 		}
 

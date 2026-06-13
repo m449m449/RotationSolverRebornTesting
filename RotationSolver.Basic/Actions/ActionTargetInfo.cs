@@ -659,7 +659,7 @@ public struct ActionTargetInfo(IBaseAction action)
 		// path and source candidates directly from GetCanAffects (enemies within EffectRange).
 		if (Range == 0 && EffectRange > 0 && !IsSingleTarget && !IsTargetArea && !action.Setting.IsFriendly)
 		{
-			if (!skipAoeCheck && Service.Config.AoEType == AoEType.Off)
+			if (Service.Config.AoEType == AoEType.Off)
 			{
 				return null;
 			}
@@ -694,7 +694,7 @@ public struct ActionTargetInfo(IBaseAction action)
 		}
 
 		// If AoE is disabled, block all hostile non-single-target actions (including ground-targeted)
-		if (!skipAoeCheck && !action.Setting.IsFriendly && Service.Config.AoEType == AoEType.Off && !IsSingleTarget)
+		if (!action.Setting.IsFriendly && Service.Config.AoEType == AoEType.Off && !IsSingleTarget)
 		{
 			return null;
 		}
@@ -1433,7 +1433,7 @@ public struct ActionTargetInfo(IBaseAction action)
 		}
 
 		// For hostile actions: if AoE is disabled, block all non-single-target actions here
-		if (aoeCount > 0 && !action.Setting.IsFriendly && Service.Config.AoEType == AoEType.Off)
+		if (!action.Setting.IsFriendly && Service.Config.AoEType == AoEType.Off)
 		{
 			yield break;
 		}
