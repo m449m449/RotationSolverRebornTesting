@@ -1077,7 +1077,7 @@ public partial class RotationConfigWindow : Window
 		ImGui.Separator();
 		ImGui.TextWrapped("Select a duty to configure before entering");
 		ImGui.SetNextItemWidth(Math.Max(comboSize, 320 * Scale));
-		var previewName = GetTerritoryDisplayName(selectedTerritory);
+		var previewName = selectedTerritory != 0 ? GetTerritoryDisplayName(selectedTerritory) : "Choose a duty...";
 		if (ImGui.BeginCombo("##PreDutyConfigTerritory", previewName))
 		{
 			foreach (var territory in territories)
@@ -1237,6 +1237,7 @@ public partial class RotationConfigWindow : Window
 		}
 
 		ImGui.TextWrapped($"Loaded profiles: {profiles.Length}");
+		ImGui.TextWrapped("Import only adds a timeline profile to the library. Choose a target duty below to assign it.");
 
 		var job = Player.Job;
 		var territoryType = DataCenter.IsInDuty ? Svc.ClientState.TerritoryType : 0u;
@@ -1427,20 +1428,22 @@ public partial class RotationConfigWindow : Window
 			}
 		}
 
-		foreach (var pair in Service.Config.DutyTimelineProfileChoice)
+		if (Service.Config.DutyTimelineProfileChoice != null)
 		{
-			if (TryParseDutyScopedChoiceKey(pair.Key, out var territoryType, out var keyJob, out var keyCombatType)
-				&& keyJob == job
-				&& keyCombatType == CombatType.PvE
-				&& Array.Exists(territories, territory => territory.TerritoryType == territoryType))
+			foreach (var pair in Service.Config.DutyTimelineProfileChoice)
 			{
-				_preDutyConfigTerritory = territoryType;
-				return _preDutyConfigTerritory;
+				if (TryParseDutyScopedChoiceKey(pair.Key, out var territoryType, out var keyJob, out var keyCombatType)
+					&& keyJob == job
+					&& keyCombatType == CombatType.PvE
+					&& Array.Exists(territories, territory => territory.TerritoryType == territoryType))
+				{
+					_preDutyConfigTerritory = territoryType;
+					return _preDutyConfigTerritory;
+				}
 			}
 		}
 
-		_preDutyConfigTerritory = territories[0].TerritoryType;
-		return _preDutyConfigTerritory;
+		return 0;
 	}
 
 	private static (uint TerritoryType, string DisplayName)[] GetPreDutyConfigTerritoryOptions()
