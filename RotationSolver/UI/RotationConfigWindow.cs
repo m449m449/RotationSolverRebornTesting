@@ -571,7 +571,7 @@ public partial class RotationConfigWindow : Window
 
 	private void DrawSideBar()
 	{
-		using var child = ImRaii.Child("Rotation Solver Side bar", -Vector2.One, false, ImGuiWindowFlags.NoScrollbar);
+		using var child = ImRaii.Child("Rotation Solver Side bar", -Vector2.One);
 		if (child)
 		{
 			var wholeWidth = ImGui.GetWindowSize().X;
