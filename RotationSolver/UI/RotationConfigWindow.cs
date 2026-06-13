@@ -53,6 +53,7 @@ public partial class RotationConfigWindow : Window
 	private static uint _preDutyConfigTerritory = 0;
 	private static (uint TerritoryType, string DisplayName)[]? _preDutyConfigTerritoryOptions;
 	private static string _preDutyTerritorySearch = string.Empty;
+	private bool _didDrawPreDutyTerritorySelectorThisFrame;
 	private static string _importedTimelineLibrarySearch = string.Empty;
 	private static string _selectedImportedTimelineProfileId = string.Empty;
 
@@ -294,6 +295,8 @@ public partial class RotationConfigWindow : Window
 
 	public override void Draw()
 	{
+		_didDrawPreDutyTerritorySelectorThisFrame = false;
+
 		if (_showResetPopup)
 		{
 			ImGui.OpenPopup("Reset RSR Plugin Settings");
@@ -1076,11 +1079,18 @@ public partial class RotationConfigWindow : Window
 
 	private void DrawPreDutyTerritorySelector(float comboSize, uint selectedTerritory)
 	{
+		if (_didDrawPreDutyTerritorySelectorThisFrame)
+		{
+			return;
+		}
+
 		var territories = GetPreDutyConfigTerritoryOptions();
 		if (territories.Length == 0)
 		{
 			return;
 		}
+
+		_didDrawPreDutyTerritorySelectorThisFrame = true;
 
 		ImGui.Separator();
 		ImGui.TextWrapped("Select a duty to configure before entering");
