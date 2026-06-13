@@ -1088,7 +1088,8 @@ public partial class RotationConfigWindow : Window
 
 			ImGui.Spacing();
 			var childHeight = Math.Min(280 * Scale, Math.Max(160 * Scale, ImGui.GetTextLineHeightWithSpacing() * 10));
-			if (ImGui.BeginChild("##PreDutyTerritoryList", new Vector2(0, childHeight), true))
+			var territoryListVisible = ImGui.BeginChild("##PreDutyTerritoryList", new Vector2(0, childHeight), true);
+			if (territoryListVisible)
 			{
 				foreach (var territory in territories)
 				{
@@ -1109,9 +1110,9 @@ public partial class RotationConfigWindow : Window
 						_preDutyTerritorySearch = string.Empty;
 					}
 				}
-
-				ImGui.EndChild();
 			}
+
+			ImGui.EndChild();
 
 			ImGui.EndCombo();
 		}
@@ -1389,7 +1390,8 @@ public partial class RotationConfigWindow : Window
 		_ = ImGui.InputTextWithHint("##ImportedTimelineLibrarySearch", "Filter imported timelines", ref _importedTimelineLibrarySearch, 128);
 
 		var listHeight = Math.Min(260 * Scale, Math.Max(140 * Scale, ImGui.GetTextLineHeightWithSpacing() * 8));
-		if (ImGui.BeginChild("##ImportedTimelineLibrary", new Vector2(0, listHeight), true))
+		var libraryVisible = ImGui.BeginChild("##ImportedTimelineLibrary", new Vector2(0, listHeight), true);
+		if (libraryVisible)
 		{
 			foreach (var profile in profiles)
 			{
@@ -1400,9 +1402,9 @@ public partial class RotationConfigWindow : Window
 
 				DrawImportedTimelineLibraryEntry(profile);
 			}
-
-			ImGui.EndChild();
 		}
+
+		ImGui.EndChild();
 		ImguiTooltips.HoveredTooltip("Review imported timeline profiles, inspect current duty assignments, and delete old entries.");
 	}
 
