@@ -467,33 +467,47 @@ public static class ImportedTimelineRuntime
 			return false;
 		}
 
-		var entry = profile.Actions[_nextActionIndex];
-		if (combatTime + ExecuteLeadSeconds < entry.CombatTimeSeconds)
+		for (var index = _nextActionIndex; index < profile.Actions.Count; index++)
 		{
-			return false;
+			var entry = profile.Actions[index];
+			if (combatTime + ExecuteLeadSeconds < entry.CombatTimeSeconds)
+			{
+				break;
+			}
+
+			if (combatTime > entry.CombatTimeSeconds + MissWindowSeconds)
+			{
+				_nextActionIndex = index + 1;
+				continue;
+			}
+
+			var resolved = ResolveAction(entry.Id);
+			if (resolved is not IBaseAction action || action.Info.IsRealGCD != wantsGcd || !action.IsEnabled)
+			{
+				continue;
+			}
+
+			try
+			{
+				IBaseAction.ForceEnable = true;
+				if (action.CanUse(out act,
+					skipStatusProvideCheck: true,
+					skipTargetStatusNeedCheck: true,
+					skipComboCheck: true,
+					usedUp: true,
+					skipAoeCheck: true,
+					skipTTKCheck: true))
+				{
+					return true;
+				}
+			}
+			finally
+			{
+				IBaseAction.ForceEnable = false;
+			}
 		}
 
-		if (combatTime > entry.CombatTimeSeconds + MissWindowSeconds)
-		{
-			_nextActionIndex++;
-			return false;
-		}
-
-		var resolved = ResolveAction(entry.Id);
-		if (resolved is not IBaseAction action || action.Info.IsRealGCD != wantsGcd || !action.IsEnabled)
-		{
-			return false;
-		}
-
-		try
-		{
-			IBaseAction.ForceEnable = true;
-			return action.CanUse(out act, usedUp: true, skipAoeCheck: true, skipStatusProvideCheck: true);
-		}
-		finally
-		{
-			IBaseAction.ForceEnable = false;
-		}
+		return false;
 	}
 
 	private static bool TryPrepareActiveProfile(out ImportedTimelineProfile? profile, out float combatTime)
@@ -579,16 +593,31 @@ public static class ImportedTimelineRuntime
 				break;
 			}
 
-			var entry = profile.Actions[_nextActionIndex];
-			if (!IsWithinTrackingWindow(entry, combatTime))
-			{
-				continue;
-			}
-
 			var latestActionId = record.Action.RowId;
-			if (DoesEntryMatchAction(entry, latestActionId))
+			for (var index = _nextActionIndex; index < profile.Actions.Count; index++)
 			{
-				_nextActionIndex++;
+				var entry = profile.Actions[index];
+				if (combatTime < entry.CombatTimeSeconds - AssistLeadSeconds)
+				{
+					break;
+				}
+
+				if (combatTime > entry.CombatTimeSeconds + MissWindowSeconds)
+				{
+					_nextActionIndex = index + 1;
+					continue;
+				}
+
+				if (!IsWithinTrackingWindow(entry, combatTime))
+				{
+					continue;
+				}
+
+				if (DoesEntryMatchAction(entry, latestActionId))
+				{
+					_nextActionIndex = index + 1;
+					break;
+				}
 			}
 		}
 
