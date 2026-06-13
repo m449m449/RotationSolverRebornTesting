@@ -1035,33 +1035,38 @@ public partial class RotationConfigWindow : Window
 		var comboId = $"##DutyRotationOverride:{territoryType}:{(int)job}";
 		if (ImGui.BeginCombo(comboId, previewName))
 		{
-			if (ImGui.Selectable("Use global rotation selection", string.IsNullOrWhiteSpace(dutyChoice)))
+			try
 			{
-				RotationUpdater.SetDutyCustomRotationChoice(territoryType, job, CombatType.PvE, null);
-				Service.Config.Save();
-				RotationUpdater.UpdateRotation();
-			}
-
-			foreach (var possibleRotation in rotations)
-			{
-				var attr = possibleRotation.GetAttributes();
-				if (attr == null)
+				if (ImGui.Selectable("Use global rotation selection", string.IsNullOrWhiteSpace(dutyChoice)))
 				{
-					continue;
-				}
-
-				using var color = ImRaii.PushColor(ImGuiCol.Text, possibleRotation.IsExtra() ? ImGuiColors.DalamudViolet : ImGuiColors.DalamudWhite);
-				var isSelected = possibleRotation.GetType().FullName == dutyChoice;
-				if (ImGui.Selectable(attr.Name, isSelected))
-				{
-					RotationUpdater.SetDutyCustomRotationChoice(territoryType, job, CombatType.PvE, possibleRotation.GetType().FullName);
+					RotationUpdater.SetDutyCustomRotationChoice(territoryType, job, CombatType.PvE, null);
 					Service.Config.Save();
 					RotationUpdater.UpdateRotation();
 				}
-				ImguiTooltips.HoveredTooltip(attr.Description);
-			}
 
-			ImGui.EndCombo();
+				foreach (var possibleRotation in rotations)
+				{
+					var attr = possibleRotation.GetAttributes();
+					if (attr == null)
+					{
+						continue;
+					}
+
+					using var color = ImRaii.PushColor(ImGuiCol.Text, possibleRotation.IsExtra() ? ImGuiColors.DalamudViolet : ImGuiColors.DalamudWhite);
+					var isSelected = possibleRotation.GetType().FullName == dutyChoice;
+					if (ImGui.Selectable(attr.Name, isSelected))
+					{
+						RotationUpdater.SetDutyCustomRotationChoice(territoryType, job, CombatType.PvE, possibleRotation.GetType().FullName);
+						Service.Config.Save();
+						RotationUpdater.UpdateRotation();
+					}
+					ImguiTooltips.HoveredTooltip(attr.Description);
+				}
+			}
+			finally
+			{
+				ImGui.EndCombo();
+			}
 		}
 		ImguiTooltips.HoveredTooltip(DataCenter.IsInDuty
 			? "Use a different rotation in this duty without changing your global rotation selection."
@@ -1083,38 +1088,48 @@ public partial class RotationConfigWindow : Window
 		ImGui.SetNextWindowSizeConstraints(new Vector2(Math.Max(comboSize, 320 * Scale), 0), new Vector2(Math.Max(comboSize, 520 * Scale), 420 * Scale));
 		if (ImGui.BeginCombo("##PreDutyConfigTerritory", previewName))
 		{
-			ImGui.SetNextItemWidth(-1);
-			_ = ImGui.InputTextWithHint("##PreDutyTerritorySearch", "Filter duties by name or territory id", ref _preDutyTerritorySearch, 128);
-
-			ImGui.Spacing();
-			var childHeight = Math.Min(280 * Scale, Math.Max(160 * Scale, ImGui.GetTextLineHeightWithSpacing() * 10));
-			var territoryListVisible = ImGui.BeginChild("##PreDutyTerritoryList", new Vector2(0, childHeight), true);
-			if (territoryListVisible)
+			try
 			{
-				foreach (var territory in territories)
+				ImGui.SetNextItemWidth(-1);
+				_ = ImGui.InputTextWithHint("##PreDutyTerritorySearch", "Filter duties by name or territory id", ref _preDutyTerritorySearch, 128);
+
+				ImGui.Spacing();
+				var childHeight = Math.Min(280 * Scale, Math.Max(160 * Scale, ImGui.GetTextLineHeightWithSpacing() * 10));
+				var territoryListVisible = ImGui.BeginChild("##PreDutyTerritoryList", new Vector2(0, childHeight), true);
+				try
 				{
-					if (!IsMatchingPreDutyTerritorySearch(territory, _preDutyTerritorySearch))
+					if (territoryListVisible)
 					{
-						continue;
-					}
+						foreach (var territory in territories)
+						{
+							if (!IsMatchingPreDutyTerritorySearch(territory, _preDutyTerritorySearch))
+							{
+								continue;
+							}
 
-					var label = territory.DisplayName;
-					if (territory.TerritoryType == selectedTerritory)
-					{
-						label += " (selected)";
-					}
+							var label = territory.DisplayName;
+							if (territory.TerritoryType == selectedTerritory)
+							{
+								label += " (selected)";
+							}
 
-					if (ImGui.Selectable(label, territory.TerritoryType == selectedTerritory))
-					{
-						_preDutyConfigTerritory = territory.TerritoryType;
-						_preDutyTerritorySearch = string.Empty;
+							if (ImGui.Selectable(label, territory.TerritoryType == selectedTerritory))
+							{
+								_preDutyConfigTerritory = territory.TerritoryType;
+								_preDutyTerritorySearch = string.Empty;
+							}
+						}
 					}
 				}
+				finally
+				{
+					ImGui.EndChild();
+				}
 			}
-
-			ImGui.EndChild();
-
-			ImGui.EndCombo();
+			finally
+			{
+				ImGui.EndCombo();
+			}
 		}
 		ImguiTooltips.HoveredTooltip("Select a duty territory, then configure the section below. Use the filter box to narrow the list by duty name or territory id.");
 	}
@@ -1162,27 +1177,32 @@ public partial class RotationConfigWindow : Window
 		var comboId = $"##DutyRotationFieldTest:{(int)job}";
 		if (ImGui.BeginCombo(comboId, previewName))
 		{
-			if (ImGui.Selectable("Disabled", !hasSelectedTerritory))
+			try
 			{
-				Service.Config.DutyCustomRotationTestTerritory = 0;
-				Service.Config.Save();
-				RotationUpdater.UpdateRotation();
-			}
-
-			foreach (var territoryType in territories)
-			{
-				RotationUpdater.TryGetDutyCustomRotationChoice(territoryType, job, CombatType.PvE, out var choice);
-				var label = GetTerritoryDisplayName(territoryType);
-				label += $" - {GetRotationChoiceDisplayName(rotations, choice, _curRotationAttribute.Name)}";
-				if (ImGui.Selectable(label, territoryType == selectedTerritory))
+				if (ImGui.Selectable("Disabled", !hasSelectedTerritory))
 				{
-					Service.Config.DutyCustomRotationTestTerritory = territoryType;
+					Service.Config.DutyCustomRotationTestTerritory = 0;
 					Service.Config.Save();
 					RotationUpdater.UpdateRotation();
 				}
-			}
 
-			ImGui.EndCombo();
+				foreach (var territoryType in territories)
+				{
+					RotationUpdater.TryGetDutyCustomRotationChoice(territoryType, job, CombatType.PvE, out var choice);
+					var label = GetTerritoryDisplayName(territoryType);
+					label += $" - {GetRotationChoiceDisplayName(rotations, choice, _curRotationAttribute.Name)}";
+					if (ImGui.Selectable(label, territoryType == selectedTerritory))
+					{
+						Service.Config.DutyCustomRotationTestTerritory = territoryType;
+						Service.Config.Save();
+						RotationUpdater.UpdateRotation();
+					}
+				}
+			}
+			finally
+			{
+				ImGui.EndCombo();
+			}
 		}
 		ImguiTooltips.HoveredTooltip(territories.Length == 0
 			? "No duty-specific rotation overrides are configured yet. Assign one above, then enable field testing here."
@@ -1300,25 +1320,30 @@ public partial class RotationConfigWindow : Window
 		var previewName = GetImportedTimelineProfilePreviewName(profileId, "Disabled");
 		if (ImGui.BeginCombo(comboId, previewName))
 		{
-			if (ImGui.Selectable("Disabled", string.IsNullOrWhiteSpace(profileId)))
+			try
 			{
-				ImportedTimelineManager.SetDutyTimelineProfileChoice(territoryType, job, CombatType.PvE, null);
-				Service.Config.Save();
-			}
-
-			foreach (var profile in profiles)
-			{
-				var label = GetImportedTimelineProfileLabel(profile);
-				if (ImGui.Selectable(label, profile.ProfileId == profileId))
+				if (ImGui.Selectable("Disabled", string.IsNullOrWhiteSpace(profileId)))
 				{
-					ImportedTimelineManager.SetDutyTimelineProfileChoice(territoryType, job, CombatType.PvE, profile.ProfileId);
+					ImportedTimelineManager.SetDutyTimelineProfileChoice(territoryType, job, CombatType.PvE, null);
 					Service.Config.Save();
 				}
 
-				ImguiTooltips.HoveredTooltip(GetImportedTimelineProfileTooltip(profile));
-			}
+				foreach (var profile in profiles)
+				{
+					var label = GetImportedTimelineProfileLabel(profile);
+					if (ImGui.Selectable(label, profile.ProfileId == profileId))
+					{
+						ImportedTimelineManager.SetDutyTimelineProfileChoice(territoryType, job, CombatType.PvE, profile.ProfileId);
+						Service.Config.Save();
+					}
 
-			ImGui.EndCombo();
+					ImguiTooltips.HoveredTooltip(GetImportedTimelineProfileTooltip(profile));
+				}
+			}
+			finally
+			{
+				ImGui.EndCombo();
+			}
 		}
 		ImguiTooltips.HoveredTooltip(DataCenter.IsInDuty
 			? "Use an imported timeline profile as a duty-specific supplemental rotation for the current encounter."
@@ -1357,25 +1382,30 @@ public partial class RotationConfigWindow : Window
 		var comboId = $"##ImportedTimelineFieldTest:{(int)job}";
 		if (ImGui.BeginCombo(comboId, previewName))
 		{
-			if (ImGui.Selectable("Disabled", !hasSelectedTerritory))
+			try
 			{
-				Service.Config.DutyTimelineProfileTestTerritory = 0;
-				Service.Config.Save();
-			}
-
-			foreach (var territoryType in territories)
-			{
-				ImportedTimelineManager.TryGetDutyTimelineProfileChoice(territoryType, job, CombatType.PvE, out var choice);
-				var label = GetTerritoryDisplayName(territoryType);
-				label += $" - {GetImportedTimelineProfilePreviewName(choice, "Disabled")}";
-				if (ImGui.Selectable(label, territoryType == selectedTerritory))
+				if (ImGui.Selectable("Disabled", !hasSelectedTerritory))
 				{
-					Service.Config.DutyTimelineProfileTestTerritory = territoryType;
+					Service.Config.DutyTimelineProfileTestTerritory = 0;
 					Service.Config.Save();
 				}
-			}
 
-			ImGui.EndCombo();
+				foreach (var territoryType in territories)
+				{
+					ImportedTimelineManager.TryGetDutyTimelineProfileChoice(territoryType, job, CombatType.PvE, out var choice);
+					var label = GetTerritoryDisplayName(territoryType);
+					label += $" - {GetImportedTimelineProfilePreviewName(choice, "Disabled")}";
+					if (ImGui.Selectable(label, territoryType == selectedTerritory))
+					{
+						Service.Config.DutyTimelineProfileTestTerritory = territoryType;
+						Service.Config.Save();
+					}
+				}
+			}
+			finally
+			{
+				ImGui.EndCombo();
+			}
 		}
 		ImguiTooltips.HoveredTooltip(territories.Length == 0
 			? "No imported timeline profile is assigned to a duty yet. Assign one above, then enable field testing here."
@@ -1391,20 +1421,25 @@ public partial class RotationConfigWindow : Window
 
 		var listHeight = Math.Min(260 * Scale, Math.Max(140 * Scale, ImGui.GetTextLineHeightWithSpacing() * 8));
 		var libraryVisible = ImGui.BeginChild("##ImportedTimelineLibrary", new Vector2(0, listHeight), true);
-		if (libraryVisible)
+		try
 		{
-			foreach (var profile in profiles)
+			if (libraryVisible)
 			{
-				if (!IsMatchingImportedTimelineSearch(profile, _importedTimelineLibrarySearch))
+				foreach (var profile in profiles)
 				{
-					continue;
-				}
+					if (!IsMatchingImportedTimelineSearch(profile, _importedTimelineLibrarySearch))
+					{
+						continue;
+					}
 
-				DrawImportedTimelineLibraryEntry(profile);
+					DrawImportedTimelineLibraryEntry(profile);
+				}
 			}
 		}
-
-		ImGui.EndChild();
+		finally
+		{
+			ImGui.EndChild();
+		}
 		ImguiTooltips.HoveredTooltip("Review imported timeline profiles, inspect current duty assignments, and delete old entries.");
 	}
 
@@ -1419,42 +1454,47 @@ public partial class RotationConfigWindow : Window
 
 		if (ImGui.TreeNode($"{header}##ImportedTimelineProfile:{profile.ProfileId}"))
 		{
-			ImGui.TextWrapped(GetImportedTimelineProfileTooltip(profile));
+			try
+			{
+				ImGui.TextWrapped(GetImportedTimelineProfileTooltip(profile));
 
-			if (assignments.Length == 0)
-			{
-				ImGui.TextWrapped("Assigned duties: none");
-			}
-			else
-			{
-				ImGui.TextWrapped("Assigned duties:");
-				foreach (var assignment in assignments)
+				if (assignments.Length == 0)
 				{
-					var label = $"{GetTerritoryDisplayName(assignment.TerritoryType)} [{assignment.Job}]";
-					if (assignment.CombatType != CombatType.PvE)
-					{
-						label += $" ({assignment.CombatType})";
-					}
-
-					ImGui.BulletText(label);
-				}
-			}
-
-			if (ImGui.Button($"Delete##ImportedTimelineDelete:{profile.ProfileId}"))
-			{
-				if (ImportedTimelineManager.DeleteProfile(profile.ProfileId))
-				{
-					Service.Config.Save();
-					Svc.Toasts.ShowNormal($"Deleted imported timeline profile: {profile.ProfileName}");
+					ImGui.TextWrapped("Assigned duties: none");
 				}
 				else
 				{
-					Svc.Toasts.ShowNormal("Failed to delete imported timeline profile.");
-				}
-			}
-			ImguiTooltips.HoveredTooltip("Delete this imported timeline profile and remove all of its duty assignments.");
+					ImGui.TextWrapped("Assigned duties:");
+					foreach (var assignment in assignments)
+					{
+						var label = $"{GetTerritoryDisplayName(assignment.TerritoryType)} [{assignment.Job}]";
+						if (assignment.CombatType != CombatType.PvE)
+						{
+							label += $" ({assignment.CombatType})";
+						}
 
-			ImGui.TreePop();
+						ImGui.BulletText(label);
+					}
+				}
+
+				if (ImGui.Button($"Delete##ImportedTimelineDelete:{profile.ProfileId}"))
+				{
+					if (ImportedTimelineManager.DeleteProfile(profile.ProfileId))
+					{
+						Service.Config.Save();
+						Svc.Toasts.ShowNormal($"Deleted imported timeline profile: {profile.ProfileName}");
+					}
+					else
+					{
+						Svc.Toasts.ShowNormal("Failed to delete imported timeline profile.");
+					}
+				}
+				ImguiTooltips.HoveredTooltip("Delete this imported timeline profile and remove all of its duty assignments.");
+			}
+			finally
+			{
+				ImGui.TreePop();
+			}
 		}
 	}
 
