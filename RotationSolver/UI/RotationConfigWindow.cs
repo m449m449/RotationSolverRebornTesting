@@ -1002,17 +1002,13 @@ public partial class RotationConfigWindow : Window
 
 	private void DrawDutyCustomRotationOverride(float comboSize, ICustomRotation[] rotations)
 	{
-		if (DataCenter.IsPvP || rotations.Length < 2)
+		if (DataCenter.IsPvP)
 		{
 			return;
 		}
 
 		var job = Player.Job;
-		var territoryType = DataCenter.IsInDuty ? Svc.ClientState.TerritoryType : GetPreDutyConfigTerritory(job);
-		if (territoryType == 0)
-		{
-			return;
-		}
+		var territoryType = DataCenter.IsInDuty ? Svc.ClientState.TerritoryType : 0u;
 
 		if (!DataCenter.IsInDuty)
 		{
@@ -1112,10 +1108,6 @@ public partial class RotationConfigWindow : Window
 
 		var job = Player.Job;
 		var territories = RotationUpdater.GetDutyCustomRotationTerritories(job, CombatType.PvE);
-		if (territories.Length == 0)
-		{
-			return;
-		}
 
 		var selectedTerritory = Service.Config.DutyCustomRotationTestTerritory;
 		var hasSelectedTerritory = Array.IndexOf(territories, selectedTerritory) >= 0;
@@ -1156,7 +1148,9 @@ public partial class RotationConfigWindow : Window
 
 			ImGui.EndCombo();
 		}
-		ImguiTooltips.HoveredTooltip("Applies the selected duty-specific rotation in normal field areas for testing. Real duty overrides still take priority while inside the duty.");
+		ImguiTooltips.HoveredTooltip(territories.Length == 0
+			? "No duty-specific rotation overrides are configured yet. Assign one above, then enable field testing here."
+			: "Applies the selected duty-specific rotation in normal field areas for testing. Real duty overrides still take priority while inside the duty.");
 	}
 
 	private static string GetRotationChoiceDisplayName(ICustomRotation[] rotations, string? choice, string fallback)
@@ -1245,11 +1239,7 @@ public partial class RotationConfigWindow : Window
 		ImGui.TextWrapped($"Loaded profiles: {profiles.Length}");
 
 		var job = Player.Job;
-		var territoryType = DataCenter.IsInDuty ? Svc.ClientState.TerritoryType : GetPreDutyConfigTerritory(job);
-		if (territoryType == 0)
-		{
-			return;
-		}
+		var territoryType = DataCenter.IsInDuty ? Svc.ClientState.TerritoryType : 0u;
 
 		if (!DataCenter.IsInDuty)
 		{
@@ -1311,10 +1301,6 @@ public partial class RotationConfigWindow : Window
 
 		var job = Player.Job;
 		var territories = ImportedTimelineManager.GetDutyTimelineProfileTerritories(job, CombatType.PvE);
-		if (territories.Length == 0)
-		{
-			return;
-		}
 
 		var selectedTerritory = Service.Config.DutyTimelineProfileTestTerritory;
 		var hasSelectedTerritory = Array.IndexOf(territories, selectedTerritory) >= 0;
@@ -1353,7 +1339,9 @@ public partial class RotationConfigWindow : Window
 
 			ImGui.EndCombo();
 		}
-		ImguiTooltips.HoveredTooltip("Applies the selected imported timeline profile in normal field areas for testing. The current rotation still handles unscheduled actions, and real duty assignments still take priority while inside the duty.");
+		ImguiTooltips.HoveredTooltip(territories.Length == 0
+			? "No imported timeline profile is assigned to a duty yet. Assign one above, then enable field testing here."
+			: "Applies the selected imported timeline profile in normal field areas for testing. The current rotation still handles unscheduled actions, and real duty assignments still take priority while inside the duty.");
 	}
 
 	private static string GetImportedTimelineProfilePreviewName(string? profileId, string fallback)
@@ -1457,7 +1445,7 @@ public partial class RotationConfigWindow : Window
 
 	private static (uint TerritoryType, string DisplayName)[] GetPreDutyConfigTerritoryOptions()
 	{
-		if (_preDutyConfigTerritoryOptions != null)
+		if (_preDutyConfigTerritoryOptions is { Length: > 0 })
 		{
 			return _preDutyConfigTerritoryOptions;
 		}
@@ -1472,12 +1460,12 @@ public partial class RotationConfigWindow : Window
 		List<(uint TerritoryType, string DisplayName)> territories = [];
 		foreach (var territory in territorySheet)
 		{
-			if (!TryGetTerritorySelectionName(territory.RowId, out var contentFinderName))
+			if (!TryGetTerritorySelectionName(territory, out var displayName))
 			{
 				continue;
 			}
 
-			territories.Add((territory.RowId, contentFinderName));
+			territories.Add((territory.RowId, displayName));
 		}
 
 		territories.Sort((left, right) =>
@@ -1490,26 +1478,37 @@ public partial class RotationConfigWindow : Window
 		return _preDutyConfigTerritoryOptions;
 	}
 
-	private static bool TryGetTerritorySelectionName(uint territoryType, out string displayName)
+	private static bool TryGetTerritorySelectionName(Lumina.Excel.Sheets.TerritoryType territory, out string displayName)
 	{
 		displayName = string.Empty;
 
 		try
 		{
-			var territorySheet = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.TerritoryType>()?.GetRow(territoryType);
-			if (territorySheet == null)
+			displayName = territory.ContentFinderCondition.Value.Name.ExtractText();
+			if (!string.IsNullOrWhiteSpace(displayName))
 			{
-				return false;
+				return true;
 			}
-
-			displayName = territorySheet.Value.ContentFinderCondition.Value.Name.ExtractText();
-			return !string.IsNullOrWhiteSpace(displayName);
 		}
 		catch (Exception ex)
 		{
-			PluginLog.Warning($"Failed to read territory selection name for territory {territoryType}: {ex.Message}");
-			return false;
+			PluginLog.Warning($"Failed to read content finder name for territory {territory.RowId}: {ex.Message}");
 		}
+
+		try
+		{
+			displayName = territory.PlaceName.Value.Name.ExtractText();
+			if (!string.IsNullOrWhiteSpace(displayName))
+			{
+				return true;
+			}
+		}
+		catch (Exception ex)
+		{
+			PluginLog.Warning($"Failed to read place name for territory {territory.RowId}: {ex.Message}");
+		}
+
+		return false;
 	}
 
 	private static bool TryParseDutyScopedChoiceKey(string key, out uint territoryType, out Job job, out CombatType combatType)
