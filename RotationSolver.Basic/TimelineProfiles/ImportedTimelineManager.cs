@@ -380,6 +380,7 @@ public static class ImportedTimelineManager
 public static class ImportedTimelineRuntime
 {
 	private const float ExecuteLeadSeconds = 0.6f;
+	private const float AssistLeadSeconds = 10.0f;
 	private const float MissWindowSeconds = 6.0f;
 	private static string _activeProfileSignature = string.Empty;
 	private static int _nextActionIndex;
@@ -528,7 +529,7 @@ public static class ImportedTimelineRuntime
 	}
 
 	private static bool IsWithinTrackingWindow(ImportedTimelineAction entry, float combatTime)
-		=> combatTime >= entry.CombatTimeSeconds - ExecuteLeadSeconds
+		=> combatTime >= entry.CombatTimeSeconds - AssistLeadSeconds
 			&& combatTime <= entry.CombatTimeSeconds + MissWindowSeconds;
 
 	private static bool DoesEntryMatchAction(ImportedTimelineAction entry, uint actionId)
