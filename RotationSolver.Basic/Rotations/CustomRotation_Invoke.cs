@@ -228,6 +228,11 @@ public partial class CustomRotation
 					return scheduledAbility;
 				}
 
+				if (RotationSolver.Basic.TimelineProfiles.ImportedTimelineRuntime.ShouldSuppressGeneralRotation())
+				{
+					return null;
+				}
+
 				var countdownAction = CountDownAction(countDown);
 				if (countdownAction is IBaseAction countdownBaseAction
 					&& RotationSolver.Basic.TimelineProfiles.ImportedTimelineRuntime.ShouldDeferToScheduledAction(countdownAction, countdownBaseAction.Info.IsRealGCD))

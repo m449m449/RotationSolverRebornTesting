@@ -458,7 +458,8 @@ public partial class CustomRotation
 			IBaseAction.ShouldEndSpecial = false;
 			IBaseAction.TargetOverride = null;
 
-			if (!DataCenter.MergedStatus.HasFlag(AutoStatus.NoCasting))
+			if (!DataCenter.MergedStatus.HasFlag(AutoStatus.NoCasting)
+				&& !ImportedTimelineRuntime.ShouldSuppressGeneralRotation())
 			{
 				if (DataCenter.CurrentDutyRotation?.GeneralGCD(out act) == true)
 				{

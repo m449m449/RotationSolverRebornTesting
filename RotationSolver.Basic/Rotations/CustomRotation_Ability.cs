@@ -367,51 +367,54 @@ public partial class CustomRotation
 		}
 		IBaseAction.ShouldEndSpecial = false;
 
-		if (HasHostilesInRange && DataCenter.CurrentDutyRotation?.AttackAbility(nextGCD, out act) == true)
+		if (!ImportedTimelineRuntime.ShouldSuppressGeneralRotation())
 		{
-			if (!ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
+			if (HasHostilesInRange && DataCenter.CurrentDutyRotation?.AttackAbility(nextGCD, out act) == true)
+			{
+				if (!ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
+				{
+					return true;
+				}
+			}
+			if (HasHostilesInRange && AttackAbility(nextGCD, out act))
+			{
+				if (!ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
+				{
+					return true;
+				}
+			}
+
+			if (DataCenter.CurrentDutyRotation?.GeneralAbility(nextGCD, out act) == true)
+			{
+				if (!ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
+				{
+					return true;
+				}
+			}
+			if (GeneralAbility(nextGCD, out act))
+			{
+				if (!ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
+				{
+					return true;
+				}
+			}
+
+			if (UseMpPotion(nextGCD, out act) && !ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
 			{
 				return true;
 			}
-		}
-		if (HasHostilesInRange && AttackAbility(nextGCD, out act))
-		{
-			if (!ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
+
+			if (GeneralUsingAbility(role, nextGCD, out act) && !ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
 			{
 				return true;
 			}
-		}
 
-		if (DataCenter.CurrentDutyRotation?.GeneralAbility(nextGCD, out act) == true)
-		{
-			if (!ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
+			if (DataCenter.AutoStatus.HasFlag(AutoStatus.Speed)
+				&& SpeedAbility(nextGCD, out act)
+				&& !ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
 			{
 				return true;
 			}
-		}
-		if (GeneralAbility(nextGCD, out act))
-		{
-			if (!ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
-			{
-				return true;
-			}
-		}
-
-		if (UseMpPotion(nextGCD, out act) && !ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
-		{
-			return true;
-		}
-
-		if (GeneralUsingAbility(role, nextGCD, out act) && !ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
-		{
-			return true;
-		}
-
-		if (DataCenter.AutoStatus.HasFlag(AutoStatus.Speed)
-			&& SpeedAbility(nextGCD, out act)
-			&& !ImportedTimelineRuntime.ShouldDeferToScheduledAction(act, false))
-		{
-			return true;
 		}
 
 		act = null;

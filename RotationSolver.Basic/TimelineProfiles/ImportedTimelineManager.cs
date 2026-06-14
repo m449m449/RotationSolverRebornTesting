@@ -428,6 +428,38 @@ public static class ImportedTimelineRuntime
 	public static bool TryGetScheduledAbility(out IAction? act)
 		=> TryGetScheduledAction(false, out act);
 
+	internal static bool ShouldSuppressGeneralRotation()
+	{
+		if (!TryPrepareActiveProfile(out var profile, out var combatTime) || profile == null)
+		{
+			return false;
+		}
+
+		for (var index = _nextActionIndex; index < profile.Actions.Count; index++)
+		{
+			if (_completedActionIndices.Contains(index))
+			{
+				continue;
+			}
+
+			var entry = profile.Actions[index];
+			if (combatTime > entry.CombatTimeSeconds + MissWindowSeconds)
+			{
+				continue;
+			}
+
+			if (entry.CombatTimeSeconds > combatTime + AssistLeadSeconds)
+			{
+				break;
+			}
+
+			ActionTracer.Note($"Timeline suppress general profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
+			return true;
+		}
+
+		return false;
+	}
+
 	internal static bool ShouldDeferToScheduledAction(IAction? candidate, bool wantsGcd)
 	{
 		if (candidate == null)
