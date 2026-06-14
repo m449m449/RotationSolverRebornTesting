@@ -594,10 +594,15 @@ public static class ImportedTimelineRuntime
 					skipAoeCheck: true,
 					skipTTKCheck: true))
 				{
+					if (ShouldUseTimelineHostileTarget(entry, action) && !TryAssignScheduledHostileTarget(action))
+					{
+						continue;
+					}
+
 					return true;
 				}
 
-				if (wantsGcd && TryUseScheduledGcdFallback(action, out act))
+				if (wantsGcd && TryUseScheduledGcdFallback(entry, action, out act))
 				{
 					return true;
 				}
@@ -622,7 +627,7 @@ public static class ImportedTimelineRuntime
 		return MathF.Min(AssistLeadSeconds, MathF.Max(ExecuteLeadSeconds, DataCenter.DefaultGCDRemain + ExecuteLeadSeconds));
 	}
 
-	private static bool TryUseScheduledGcdFallback(IBaseAction action, out IAction? act)
+	private static bool TryUseScheduledGcdFallback(ImportedTimelineAction entry, IBaseAction action, out IAction? act)
 	{
 		act = null;
 
@@ -646,7 +651,7 @@ public static class ImportedTimelineRuntime
 			return false;
 		}
 
-		if (TryAssignScheduledHostileTarget(action) || TryAssignScheduledSelfExecutedTarget(action))
+		if (TryAssignScheduledHostileTarget(action) || (!ShouldUseTimelineHostileTarget(entry, action) && TryAssignScheduledSelfExecutedTarget(action)))
 		{
 			act = action;
 			return true;
@@ -654,6 +659,13 @@ public static class ImportedTimelineRuntime
 
 		return false;
 	}
+
+	private static bool ShouldUseTimelineHostileTarget(ImportedTimelineAction entry, IBaseAction action)
+		=> entry.SourceIsFriendly
+			&& !entry.TargetIsFriendly
+			&& !action.Setting.IsFriendly
+			&& action.Info.CanTargetHostile
+			&& !action.TargetInfo.IsTargetArea;
 
 	private static bool TryAssignScheduledHostileTarget(IBaseAction action)
 	{
@@ -708,7 +720,8 @@ public static class ImportedTimelineRuntime
 			return false;
 		}
 
-		if (target.DistanceToPlayer() > action.TargetInfo.Range)
+		var range = GetScheduledTargetRange(action);
+		if (range > 0 && target.DistanceToPlayer() > range)
 		{
 			return false;
 		}
@@ -730,6 +743,9 @@ public static class ImportedTimelineRuntime
 		return false;
 	}
 
+	private static float GetScheduledTargetRange(IBaseAction action)
+		=> MathF.Max(action.TargetInfo.Range, action.Info.Range);
+
 	private static bool TryAssignScheduledSelfExecutedTarget(IBaseAction action)
 	{
 		if (!IsSelfExecutedHostileAction(action) || Player.Object == null)
@@ -742,13 +758,14 @@ public static class ImportedTimelineRuntime
 	}
 
 	private static bool IsTargetedHostileAction(IBaseAction action)
-		=> action.TargetInfo.Range > 0
+		=> action.Info.CanTargetHostile
 			&& !action.TargetInfo.IsTargetArea
 			&& !action.Setting.IsFriendly;
 
 	private static bool IsSelfExecutedHostileAction(IBaseAction action)
 		=> action.TargetInfo.Range == 0
 			&& action.TargetInfo.EffectRange > 0
+			&& !action.Info.CanTargetHostile
 			&& !action.TargetInfo.IsSingleTarget
 			&& !action.TargetInfo.IsTargetArea
 			&& !action.Setting.IsFriendly;
