@@ -17,6 +17,9 @@ public sealed class ImportedTimelineProfile
 	[JsonProperty("source")]
 	public ImportedTimelineSource Source { get; set; } = new();
 
+	[JsonProperty("syncs")]
+	public List<ImportedTimelineSync> Syncs { get; set; } = [];
+
 	[JsonProperty("actions")]
 	public List<ImportedTimelineAction> Actions { get; set; } = [];
 }
@@ -91,4 +94,40 @@ public sealed class ImportedTimelineAction
 
 	[JsonProperty("targetIsFriendly")]
 	public bool TargetIsFriendly { get; set; }
+}
+
+public sealed class ImportedTimelineSync
+{
+	[JsonProperty("combatTime")]
+	public double CombatTimeSeconds { get; set; }
+
+	[JsonProperty("type")]
+	public string Type { get; set; } = string.Empty;
+
+	[JsonProperty("pattern")]
+	public string Pattern { get; set; } = string.Empty;
+
+	[JsonProperty("regex")]
+	public bool Regex { get; set; }
+
+	[JsonProperty("id")]
+	public uint Id { get; set; }
+
+	[JsonProperty("name")]
+	public string Name { get; set; } = string.Empty;
+
+	[JsonProperty("sourceId")]
+	public uint SourceId { get; set; }
+
+	[JsonProperty("phase")]
+	public string Phase { get; set; } = string.Empty;
+
+	[JsonProperty("windowBefore")]
+	public double WindowBeforeSeconds { get; set; } = 15;
+
+	[JsonProperty("windowAfter")]
+	public double WindowAfterSeconds { get; set; } = 15;
+
+	[JsonProperty("once")]
+	public bool Once { get; set; } = true;
 }

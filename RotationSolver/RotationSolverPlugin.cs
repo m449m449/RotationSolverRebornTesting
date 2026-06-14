@@ -1,4 +1,5 @@
 using Dalamud.Game.ClientState.Conditions;
+using Dalamud.Game.Chat;
 using Dalamud.Game.DutyState;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Interface.Windowing;
@@ -156,6 +157,7 @@ public sealed class RotationSolverPlugin : IAsyncDalamudPlugin
 			Svc.DutyState.DutyWiped += DutyState_DutyWiped;
 			Svc.DutyState.DutyCompleted += DutyState_DutyCompleted;
 			Svc.ClientState.TerritoryChanged += ClientState_TerritoryChanged;
+			Svc.Chat.ChatMessage += Chat_ChatMessage;
 			ClientState_TerritoryChanged(Svc.ClientState.TerritoryType);
 
 			ChangeUITranslation();
@@ -176,6 +178,11 @@ public sealed class RotationSolverPlugin : IAsyncDalamudPlugin
 				}
 			});
 		}, cancellationToken);
+	}
+
+	private static void Chat_ChatMessage(IHandleableChatMessage message)
+	{
+		ImportedTimelineRuntime.NotifyChatMessage(message.LogKind.ToString(), message.Sender.TextValue, message.Message.TextValue);
 	}
 
 	private static void DutyState_DutyCompleted(IDutyStateEventArgs e)
@@ -370,6 +377,7 @@ public sealed class RotationSolverPlugin : IAsyncDalamudPlugin
 		RSCommands.Disable();
 		Watcher.Disable();
 		ActionQueueManager.Disable();
+		Svc.Chat.ChatMessage -= Chat_ChatMessage;
 		Svc.PluginInterface.UiBuilder.OpenConfigUi -= OnOpenConfigUi;
 		Svc.PluginInterface.UiBuilder.Draw -= OnDraw;
 

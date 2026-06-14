@@ -312,6 +312,17 @@ public static class ImportedTimelineManager
 			: profile.ProfileName.Trim();
 
 		profile.Source ??= new ImportedTimelineSource();
+		profile.Syncs ??= [];
+		profile.Syncs =
+		[
+			.. profile.Syncs
+				.Where(sync => sync != null && IsValidSync(sync))
+				.Select(NormalizeSync)
+				.OrderBy(sync => sync.CombatTimeSeconds)
+				.ThenBy(sync => sync.Type, StringComparer.OrdinalIgnoreCase)
+				.ThenBy(sync => sync.Id)
+		];
+
 		profile.Actions ??= [];
 		profile.Actions =
 		[
@@ -321,6 +332,47 @@ public static class ImportedTimelineManager
 				.ThenBy(action => action.Id)
 		];
 	}
+
+	private static ImportedTimelineSync NormalizeSync(ImportedTimelineSync sync)
+	{
+		sync.Type = sync.Type?.Trim() ?? string.Empty;
+		sync.Pattern = sync.Pattern?.Trim() ?? string.Empty;
+		sync.Name = sync.Name?.Trim() ?? string.Empty;
+		sync.Phase = sync.Phase?.Trim() ?? string.Empty;
+		sync.WindowBeforeSeconds = Math.Max(0, sync.WindowBeforeSeconds);
+		sync.WindowAfterSeconds = Math.Max(0, sync.WindowAfterSeconds);
+		return sync;
+	}
+
+	private static bool IsValidSync(ImportedTimelineSync sync)
+	{
+		if (sync.CombatTimeSeconds < 0 || string.IsNullOrWhiteSpace(sync.Type))
+		{
+			return false;
+		}
+
+		var type = sync.Type.Trim();
+		if (IsChatSyncType(type))
+		{
+			return !string.IsNullOrWhiteSpace(sync.Pattern);
+		}
+
+		if (IsCastSyncType(type))
+		{
+			return sync.Id > 0;
+		}
+
+		return sync.Id > 0 || !string.IsNullOrWhiteSpace(sync.Pattern);
+	}
+
+	private static bool IsChatSyncType(string type)
+		=> string.Equals(type, "chat", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(type, "message", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(type, "dialog", StringComparison.OrdinalIgnoreCase);
+
+	private static bool IsCastSyncType(string type)
+		=> string.Equals(type, "cast", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(type, "enemyCast", StringComparison.OrdinalIgnoreCase);
 
 	private static void ValidateProfile(ImportedTimelineProfile profile, string filePath)
 	{
@@ -396,15 +448,45 @@ public static class ImportedTimelineRuntime
 	private const float MissWindowSeconds = 6.0f;
 	private const float CountdownEndGraceSeconds = 2.0f;
 	private const float SyncLeadSeconds = ExecuteLeadSeconds;
+	private const string SyncEventChat = "chat";
+	private const string SyncEventCast = "cast";
 	private static string _activeProfileSignature = string.Empty;
 	private static int _nextActionIndex;
 	private static DateTime _lastObservedActionTime = DateTime.Now;
 	private static DateTime _lastCountdownObservedTime = DateTime.MinValue;
 	private static float _lastCombatTime;
+	private static float _lastRawCombatTime;
+	private static float _timelineOffsetSeconds;
+	private static bool _hasTimelineOffset;
 	private static readonly HashSet<int> _completedActionIndices = [];
+	private static readonly HashSet<int> _completedSyncIndices = [];
+	private static readonly Dictionary<ulong, uint> _observedHostileCasts = [];
 
 	public static bool TryGetActiveProfile(out ImportedTimelineProfile? profile)
 		=> TryGetActiveProfile(out _, out profile);
+
+	public static void NotifyChatMessage(string chatType, string sender, string message)
+	{
+		if (string.IsNullOrWhiteSpace(message)
+			|| DataCenter.CurrentRotation == null
+			|| !DataCenter.InCombat)
+		{
+			return;
+		}
+
+		if (!TryGetActiveProfile(out var territoryType, out var profile) || profile == null || profile.Syncs.Count == 0)
+		{
+			return;
+		}
+
+		var signature = BuildActiveProfileSignature(profile.ProfileId, territoryType);
+		if (_activeProfileSignature != signature)
+		{
+			ResetState(signature);
+		}
+
+		TryApplyTimelineSync(profile, DataCenter.CombatTimeRaw, SyncEventChat, 0, message, sender, chatType);
+	}
 
 	internal static bool IsUsingProfile(string profileId)
 		=> !string.IsNullOrWhiteSpace(profileId)
@@ -830,13 +912,13 @@ public static class ImportedTimelineRuntime
 		}
 
 		var signature = BuildActiveProfileSignature(profile.ProfileId, territoryType);
-		combatTime = DataCenter.InCombat
+		var rawCombatTime = DataCenter.InCombat
 			? DataCenter.CombatTimeRaw
 			: isCountdownActive
 				? -countdownTime
 				: 0;
 
-		if (_activeProfileSignature != signature || combatTime + 0.01f < _lastCombatTime)
+		if (_activeProfileSignature != signature || (!isCountdownActive && rawCombatTime + 0.01f < _lastRawCombatTime))
 		{
 			ResetState(signature);
 		}
@@ -846,11 +928,203 @@ public static class ImportedTimelineRuntime
 			_lastCountdownObservedTime = now;
 		}
 
+		UpdateCastSyncs(profile, rawCombatTime);
+		combatTime = ApplyTimelineOffset(rawCombatTime);
+		_lastRawCombatTime = rawCombatTime;
 		_lastCombatTime = combatTime;
 		SyncWithRecentActions(profile, combatTime);
 		AdvanceCompletedOrExpiredActions(profile, combatTime);
 		return true;
 	}
+
+	private static float ApplyTimelineOffset(float rawCombatTime)
+		=> _hasTimelineOffset && rawCombatTime >= 0
+			? rawCombatTime + _timelineOffsetSeconds
+			: rawCombatTime;
+
+	private static void UpdateCastSyncs(ImportedTimelineProfile profile, float rawCombatTime)
+	{
+		if (!DataCenter.InCombat || rawCombatTime < 0 || profile.Syncs.Count == 0)
+		{
+			_observedHostileCasts.Clear();
+			return;
+		}
+
+		HashSet<ulong> observedObjectIds = [];
+		var hostiles = DataCenter.AllHostileTargets;
+		for (var i = 0; i < hostiles.Count; i++)
+		{
+			var hostile = hostiles[i];
+			var objectId = hostile.GameObjectId;
+			if (objectId == 0)
+			{
+				continue;
+			}
+
+			observedObjectIds.Add(objectId);
+			var castId = hostile.CastActionId;
+			if (castId == 0)
+			{
+				_observedHostileCasts.Remove(objectId);
+				continue;
+			}
+
+			if (_observedHostileCasts.TryGetValue(objectId, out var previousCastId) && previousCastId == castId)
+			{
+				continue;
+			}
+
+			_observedHostileCasts[objectId] = castId;
+			TryApplyTimelineSync(profile, rawCombatTime, SyncEventCast, castId, string.Empty, hostile.Name.TextValue, string.Empty);
+		}
+
+		foreach (var objectId in _observedHostileCasts.Keys.Where(objectId => !observedObjectIds.Contains(objectId)).ToArray())
+		{
+			_observedHostileCasts.Remove(objectId);
+		}
+	}
+
+	private static bool TryApplyTimelineSync(
+		ImportedTimelineProfile profile,
+		float rawCombatTime,
+		string eventType,
+		uint eventId,
+		string message,
+		string sender,
+		string chatType)
+	{
+		if (rawCombatTime < 0 || profile.Syncs.Count == 0)
+		{
+			return false;
+		}
+
+		var currentCombatTime = ApplyTimelineOffset(rawCombatTime);
+		for (var index = 0; index < profile.Syncs.Count; index++)
+		{
+			var sync = profile.Syncs[index];
+			if (sync.Once && _completedSyncIndices.Contains(index))
+			{
+				continue;
+			}
+
+			if (!DoesSyncMatchEvent(sync, eventType, eventId, message))
+			{
+				continue;
+			}
+
+			if (!IsSyncWithinWindow(sync, currentCombatTime))
+			{
+				continue;
+			}
+
+			ApplyTimelineSync(profile, index, sync, rawCombatTime, currentCombatTime, eventType, eventId, sender, chatType);
+			return true;
+		}
+
+		return false;
+	}
+
+	private static bool DoesSyncMatchEvent(ImportedTimelineSync sync, string eventType, uint eventId, string message)
+	{
+		if (string.Equals(eventType, SyncEventChat, StringComparison.OrdinalIgnoreCase))
+		{
+			if (!IsChatSyncType(sync.Type))
+			{
+				return false;
+			}
+
+			return DoesChatMessageMatch(sync, message);
+		}
+
+		if (string.Equals(eventType, SyncEventCast, StringComparison.OrdinalIgnoreCase))
+		{
+			return IsCastSyncType(sync.Type) && sync.Id == eventId;
+		}
+
+		return false;
+	}
+
+	private static bool DoesChatMessageMatch(ImportedTimelineSync sync, string message)
+	{
+		if (string.IsNullOrWhiteSpace(sync.Pattern) || string.IsNullOrWhiteSpace(message))
+		{
+			return false;
+		}
+
+		if (!sync.Regex)
+		{
+			return message.Contains(sync.Pattern, StringComparison.OrdinalIgnoreCase);
+		}
+
+		try
+		{
+			return System.Text.RegularExpressions.Regex.IsMatch(
+				message,
+				sync.Pattern,
+				System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+		}
+		catch (ArgumentException ex)
+		{
+			PluginLog.Warning($"Invalid imported timeline sync regex '{sync.Pattern}': {ex.Message}");
+			return false;
+		}
+	}
+
+	private static bool IsSyncWithinWindow(ImportedTimelineSync sync, float combatTime)
+		=> combatTime >= sync.CombatTimeSeconds - sync.WindowBeforeSeconds
+			&& combatTime <= sync.CombatTimeSeconds + sync.WindowAfterSeconds;
+
+	private static void ApplyTimelineSync(
+		ImportedTimelineProfile profile,
+		int syncIndex,
+		ImportedTimelineSync sync,
+		float rawCombatTime,
+		float previousCombatTime,
+		string eventType,
+		uint eventId,
+		string sender,
+		string chatType)
+	{
+		var syncedCombatTime = (float)sync.CombatTimeSeconds;
+		_timelineOffsetSeconds = syncedCombatTime - rawCombatTime;
+		_hasTimelineOffset = true;
+
+		if (sync.Once)
+		{
+			_completedSyncIndices.Add(syncIndex);
+		}
+
+		SetTimelinePosition(profile, syncedCombatTime);
+
+		var syncName = !string.IsNullOrWhiteSpace(sync.Phase)
+			? sync.Phase
+			: sync.Name;
+		ActionTracer.Note(
+			$"Timeline sync profile='{profile.ProfileName}' type='{eventType}' id={eventId} chat='{chatType}' sender='{sender}' marker='{syncName}' raw={rawCombatTime:F3} from={previousCombatTime:F3} to={syncedCombatTime:F3} offset={_timelineOffsetSeconds:F3}");
+	}
+
+	private static void SetTimelinePosition(ImportedTimelineProfile profile, float combatTime)
+	{
+		var nextIndex = 0;
+		var searchFrom = combatTime - MissWindowSeconds;
+		while (nextIndex < profile.Actions.Count && profile.Actions[nextIndex].CombatTimeSeconds < searchFrom)
+		{
+			nextIndex++;
+		}
+
+		_nextActionIndex = nextIndex;
+		_completedActionIndices.RemoveWhere(index => index >= _nextActionIndex);
+		AdvanceCompletedOrExpiredActions(profile, combatTime);
+	}
+
+	private static bool IsChatSyncType(string type)
+		=> string.Equals(type, "chat", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(type, "message", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(type, "dialog", StringComparison.OrdinalIgnoreCase);
+
+	private static bool IsCastSyncType(string type)
+		=> string.Equals(type, "cast", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(type, "enemyCast", StringComparison.OrdinalIgnoreCase);
 
 	private static void SyncWithRecentActions(ImportedTimelineProfile profile, float combatTime)
 	{
@@ -1005,6 +1279,11 @@ public static class ImportedTimelineRuntime
 		_lastObservedActionTime = DateTime.Now;
 		_lastCountdownObservedTime = DateTime.MinValue;
 		_lastCombatTime = 0;
+		_lastRawCombatTime = 0;
+		_timelineOffsetSeconds = 0;
+		_hasTimelineOffset = false;
 		_completedActionIndices.Clear();
+		_completedSyncIndices.Clear();
+		_observedHostileCasts.Clear();
 	}
 }
