@@ -586,6 +586,14 @@ public static class ImportedTimelineRuntime
 			{
 				IBaseAction.ForceEnable = true;
 				IBaseAction.IgnoreActionCheck = true;
+				if (wantsGcd
+					&& ShouldUseTimelineHostileTarget(entry, action)
+					&& TryUseScheduledGcdFallback(entry, action, out act))
+				{
+					ActionTracer.Note($"Timeline reserve hostile GCD profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
+					return true;
+				}
+
 				if (action.CanUse(out act,
 					skipStatusProvideCheck: true,
 					skipTargetStatusNeedCheck: true,
@@ -596,16 +604,21 @@ public static class ImportedTimelineRuntime
 				{
 					if (ShouldUseTimelineHostileTarget(entry, action) && !TryAssignScheduledHostileTarget(action))
 					{
+						ActionTracer.Note($"Timeline reject no hostile target profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
 						continue;
 					}
 
+					ActionTracer.Note($"Timeline accept profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
 					return true;
 				}
 
 				if (wantsGcd && TryUseScheduledGcdFallback(entry, action, out act))
 				{
+					ActionTracer.Note($"Timeline reserve GCD profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
 					return true;
 				}
+
+				ActionTracer.Note($"Timeline reject unavailable profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
 			}
 			finally
 			{
@@ -636,7 +649,7 @@ public static class ImportedTimelineRuntime
 			return false;
 		}
 
-		if (!ActionHelper.CanUseGCD || !action.Cooldown.CooldownCheck(true, 0))
+		if (!action.Cooldown.CooldownCheck(true, 0))
 		{
 			return false;
 		}
@@ -646,7 +659,7 @@ public static class ImportedTimelineRuntime
 			skipStatusNeed: false,
 			skipComboCheck: true,
 			skipCastingCheck: false,
-			checkActionManager: true))
+			checkActionManager: false))
 		{
 			return false;
 		}
@@ -687,14 +700,14 @@ public static class ImportedTimelineRuntime
 	{
 		target = null;
 
-		if (Svc.Targets.Target is IBattleChara currentTarget && IsValidScheduledHostileTarget(action, currentTarget))
+		if (Svc.Targets.Target is IBattleChara currentTarget && IsValidScheduledHostileTarget(action, currentTarget, false))
 		{
 			target = currentTarget;
 			return true;
 		}
 
 		var hostileTarget = DataCenter.HostileTarget;
-		if (hostileTarget != null && IsValidScheduledHostileTarget(action, hostileTarget))
+		if (hostileTarget != null && IsValidScheduledHostileTarget(action, hostileTarget, false))
 		{
 			target = hostileTarget;
 			return true;
@@ -703,7 +716,7 @@ public static class ImportedTimelineRuntime
 		var hostiles = DataCenter.AllHostileTargets;
 		for (var i = 0; i < hostiles.Count; i++)
 		{
-			if (IsValidScheduledHostileTarget(action, hostiles[i]))
+			if (IsValidScheduledHostileTarget(action, hostiles[i], true))
 			{
 				target = hostiles[i];
 				return true;
@@ -713,9 +726,14 @@ public static class ImportedTimelineRuntime
 		return false;
 	}
 
-	private static bool IsValidScheduledHostileTarget(IBaseAction action, IBattleChara target)
+	private static bool IsValidScheduledHostileTarget(IBaseAction action, IBattleChara target, bool requireKnownHostile)
 	{
-		if (!IsKnownHostileTarget(target))
+		if (requireKnownHostile && !IsKnownHostileTarget(target))
+		{
+			return false;
+		}
+
+		if (!target.IsEnemy())
 		{
 			return false;
 		}
