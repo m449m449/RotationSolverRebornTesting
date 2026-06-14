@@ -31,13 +31,22 @@ public static class ImportedTimelineManager
 	public static void LoadProfiles()
 	{
 		var loaded = new Dictionary<string, ImportedTimelineProfile>(StringComparer.OrdinalIgnoreCase);
+		var loadedSourcePaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		var filePaths = Directory.GetFiles(ProfilesDirectory, "*.json", SearchOption.TopDirectoryOnly);
+		Array.Sort(filePaths, StringComparer.OrdinalIgnoreCase);
 
-		foreach (var filePath in Directory.EnumerateFiles(ProfilesDirectory, "*.json", SearchOption.TopDirectoryOnly))
+		foreach (var filePath in filePaths)
 		{
 			try
 			{
 				var profile = ReadProfile(filePath);
+				if (loadedSourcePaths.TryGetValue(profile.ProfileId, out var existingPath))
+				{
+					PluginLog.Warning($"Duplicate imported timeline profile id '{profile.ProfileId}'. '{filePath}' overrides '{existingPath}'.");
+				}
+
 				loaded[profile.ProfileId] = profile;
+				loadedSourcePaths[profile.ProfileId] = filePath;
 			}
 			catch (Exception ex)
 			{
@@ -436,6 +445,11 @@ public static class ImportedTimelineRuntime
 			return false;
 		}
 
+		if (ShouldHoldForDueScheduledAction(profile, combatTime, action, wantsGcd))
+		{
+			return true;
+		}
+
 		for (var index = _nextActionIndex; index < profile.Actions.Count; index++)
 		{
 			if (_completedActionIndices.Contains(index))
@@ -458,6 +472,38 @@ public static class ImportedTimelineRuntime
 			{
 				return combatTime + ExecuteLeadSeconds < entry.CombatTimeSeconds;
 			}
+		}
+
+		return false;
+	}
+
+	private static bool ShouldHoldForDueScheduledAction(ImportedTimelineProfile profile, float combatTime, IBaseAction candidate, bool wantsGcd)
+	{
+		for (var index = _nextActionIndex; index < profile.Actions.Count; index++)
+		{
+			if (_completedActionIndices.Contains(index))
+			{
+				continue;
+			}
+
+			var entry = profile.Actions[index];
+			if (combatTime > entry.CombatTimeSeconds + MissWindowSeconds)
+			{
+				continue;
+			}
+
+			if (combatTime + ExecuteLeadSeconds < entry.CombatTimeSeconds)
+			{
+				break;
+			}
+
+			var resolved = ResolveAction(entry.Id);
+			if (resolved is not IBaseAction scheduled || scheduled.Info.IsRealGCD != wantsGcd || !scheduled.IsEnabled)
+			{
+				continue;
+			}
+
+			return !DoesEntryMatchAction(entry, candidate);
 		}
 
 		return false;
