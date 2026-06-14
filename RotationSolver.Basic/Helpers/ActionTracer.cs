@@ -185,6 +185,16 @@ internal static class ActionTracer
 		Write($"ACCEPT {Format(a)}");
 	}
 
+	internal static void Note(string message)
+	{
+		if (!Enabled)
+		{
+			return;
+		}
+
+		Write($"NOTE   {message}");
+	}
+
 	private static string Format(IAction? a) => a == null ? "<null>" : $"{a.Name}({a.ID})";
 
 	private static void Write(string body)

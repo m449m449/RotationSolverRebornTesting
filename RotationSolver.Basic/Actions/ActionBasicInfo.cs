@@ -293,7 +293,7 @@ public readonly struct ActionBasicInfo
 	/// </summary>
 	public unsafe bool ActionManagerStatusValid()
 	{
-		return ActionManager.Instance() != null && ActionManager.Instance()->GetActionStatus(ActionType.Action, ID) == 0;
+		return ActionManager.Instance() != null && ActionManager.Instance()->GetActionStatus(ActionType.Action, AdjustedID) == 0;
 	}
 
 	/// <summary>
