@@ -243,6 +243,11 @@ public partial class CustomRotation
 
 			// Attempt to get the GCD action
 			gcdAction = GCD();
+			if (RotationSolver.Basic.TimelineProfiles.ImportedTimelineRuntime.ShouldDeferToScheduledAction(gcdAction, true))
+			{
+				gcdAction = null;
+			}
+
 			IBaseAction.IgnoreClipping = false;
 
 			// If a GCD action is available, determine if it can be used or if an ability should be used instead

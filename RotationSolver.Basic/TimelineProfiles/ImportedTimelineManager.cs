@@ -470,7 +470,7 @@ public static class ImportedTimelineRuntime
 
 			if (DoesEntryMatchAction(entry, action))
 			{
-				return combatTime + ExecuteLeadSeconds < entry.CombatTimeSeconds;
+				return combatTime + GetScheduleLeadSeconds(wantsGcd) < entry.CombatTimeSeconds;
 			}
 		}
 
@@ -479,6 +479,7 @@ public static class ImportedTimelineRuntime
 
 	private static bool ShouldHoldForDueScheduledAction(ImportedTimelineProfile profile, float combatTime, IBaseAction candidate, bool wantsGcd)
 	{
+		var leadSeconds = GetScheduleLeadSeconds(wantsGcd);
 		for (var index = _nextActionIndex; index < profile.Actions.Count; index++)
 		{
 			if (_completedActionIndices.Contains(index))
@@ -492,7 +493,7 @@ public static class ImportedTimelineRuntime
 				continue;
 			}
 
-			if (combatTime + ExecuteLeadSeconds < entry.CombatTimeSeconds)
+			if (combatTime + leadSeconds < entry.CombatTimeSeconds)
 			{
 				break;
 			}
@@ -523,6 +524,7 @@ public static class ImportedTimelineRuntime
 			return false;
 		}
 
+		var leadSeconds = GetScheduleLeadSeconds(wantsGcd);
 		for (var index = _nextActionIndex; index < profile.Actions.Count; index++)
 		{
 			if (_completedActionIndices.Contains(index))
@@ -531,7 +533,7 @@ public static class ImportedTimelineRuntime
 			}
 
 			var entry = profile.Actions[index];
-			if (combatTime + ExecuteLeadSeconds < entry.CombatTimeSeconds)
+			if (combatTime + leadSeconds < entry.CombatTimeSeconds)
 			{
 				break;
 			}
@@ -576,6 +578,16 @@ public static class ImportedTimelineRuntime
 		}
 
 		return false;
+	}
+
+	private static float GetScheduleLeadSeconds(bool wantsGcd)
+	{
+		if (!wantsGcd)
+		{
+			return ExecuteLeadSeconds;
+		}
+
+		return MathF.Min(AssistLeadSeconds, MathF.Max(ExecuteLeadSeconds, DataCenter.DefaultGCDRemain + ExecuteLeadSeconds));
 	}
 
 	private static bool TryUseScheduledGcdFallback(IBaseAction action, out IAction? act)

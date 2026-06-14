@@ -216,6 +216,15 @@ internal static class MajorUpdater
 
 		try
 		{
+			ActionUpdater.UpdateCombatInfo();
+		}
+		catch (Exception ex)
+		{
+			LogOnce("(RSRActivatedCore): ActionUpdater.UpdateCombatInfo Exception", ex);
+		}
+
+		try
+		{
 			ActionUpdater.UpdateNextAction();
 		}
 		catch (Exception ex)
