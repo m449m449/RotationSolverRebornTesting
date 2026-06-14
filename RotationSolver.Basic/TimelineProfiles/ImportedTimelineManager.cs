@@ -577,9 +577,15 @@ public static class ImportedTimelineRuntime
 			}
 
 			var resolved = ResolveAction(entry.Id);
-			if (resolved is not IBaseAction action || action.Info.IsRealGCD != wantsGcd || !action.IsEnabled)
+			if (resolved is not IBaseAction action || !action.IsEnabled)
 			{
 				continue;
+			}
+
+			if (action.Info.IsRealGCD != wantsGcd)
+			{
+				ActionTracer.Note($"Timeline wait earlier profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
+				return false;
 			}
 
 			try
@@ -964,8 +970,8 @@ public static class ImportedTimelineRuntime
 		var dutyActions = DataCenter.CurrentDutyRotation?.AllActions ?? [];
 		var id = (ActionID)actionId;
 
-		return id.GetActionFromID(true, rotationActions, dutyActions)
-			?? id.GetActionFromID(false, rotationActions, dutyActions);
+		return id.GetActionFromID(false, rotationActions, dutyActions)
+			?? id.GetActionFromID(true, rotationActions, dutyActions);
 	}
 
 	private static bool TryGetActiveTerritoryType(out uint territoryType)
