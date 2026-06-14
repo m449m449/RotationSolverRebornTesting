@@ -505,6 +505,7 @@ public static class ImportedTimelineRuntime
 			try
 			{
 				IBaseAction.ForceEnable = true;
+				IBaseAction.IgnoreActionCheck = true;
 				if (action.CanUse(out act,
 					skipStatusProvideCheck: true,
 					skipTargetStatusNeedCheck: true,
@@ -524,6 +525,7 @@ public static class ImportedTimelineRuntime
 			finally
 			{
 				IBaseAction.ForceEnable = false;
+				IBaseAction.IgnoreActionCheck = false;
 			}
 		}
 
@@ -548,7 +550,8 @@ public static class ImportedTimelineRuntime
 			skipStatusProvideCheck: true,
 			skipStatusNeed: false,
 			skipComboCheck: true,
-			skipCastingCheck: false))
+			skipCastingCheck: false,
+			checkActionManager: true))
 		{
 			return false;
 		}

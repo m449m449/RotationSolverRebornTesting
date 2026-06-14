@@ -9,6 +9,7 @@ public interface IBaseAction : IAction
 {
 	internal static TargetType? TargetOverride { get; set; } = null;
 	internal static bool ForceEnable { get; set; } = false;
+	internal static bool IgnoreActionCheck { get; set; } = false;
 	internal static bool AutoHealCheck { get; set; } = false;
 	internal static bool ActionPreview { get; set; } = false;
 	internal static bool IgnoreClipping { get; set; } = false;

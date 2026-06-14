@@ -682,7 +682,7 @@ public readonly struct ActionBasicInfo
 
 	private bool IsActionCheckValid()
 	{
-		return _action.Setting.ActionCheck?.Invoke() ?? true;
+		return IBaseAction.IgnoreActionCheck || (_action.Setting.ActionCheck?.Invoke() ?? true);
 	}
 
 	private readonly bool CheckForCombo()
