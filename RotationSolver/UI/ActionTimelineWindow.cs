@@ -102,6 +102,8 @@ internal class ActionTimelineWindow : Window
 
 		// Draw time grid
 		DrawGrid(pos, size);
+
+		DrawCombatTime(pos, size);
 	}
 
 	private void DrawTimeline(Vector2 pos, Vector2 size, DateTime now, List<TimelineItem> items)
@@ -225,6 +227,28 @@ internal class ActionTimelineWindow : Window
 			new Vector2(currentTimeX, pos.Y + size.Y),
 			currentTimeColor,
 			3f);
+	}
+
+	private static void DrawCombatTime(Vector2 pos, Vector2 size)
+	{
+		var drawList = ImGui.GetWindowDrawList();
+		var label = $"combatTime {DataCenter.CombatTimeRaw:F2}s";
+		var textSize = ImGui.CalcTextSize(label);
+		var padding = new Vector2(6, 3);
+		var margin = new Vector2(6, 4);
+		var bgSize = new Vector2(textSize.X + padding.X * 2, textSize.Y + padding.Y * 2);
+		var bgMin = new Vector2(
+			Math.Max(pos.X + margin.X, pos.X + size.X - bgSize.X - margin.X),
+			pos.Y + margin.Y);
+		var bgMax = bgMin + bgSize;
+
+		var bgColor = ImGui.ColorConvertFloat4ToU32(new Vector4(0f, 0f, 0f, 0.55f));
+		var borderColor = ImGui.ColorConvertFloat4ToU32(new Vector4(0.3f, 0.8f, 0.2f, 0.8f));
+		var textColor = ImGui.ColorConvertFloat4ToU32(new Vector4(1f, 1f, 1f, 0.95f));
+
+		drawList.AddRectFilled(bgMin, bgMax, bgColor, 4f);
+		drawList.AddRect(bgMin, bgMax, borderColor, 4f);
+		drawList.AddText(bgMin + padding, textColor, label);
 	}
 
 	/// <summary>
