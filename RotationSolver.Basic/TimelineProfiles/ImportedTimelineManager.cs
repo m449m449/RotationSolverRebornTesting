@@ -472,6 +472,7 @@ public static class ImportedTimelineRuntime
 	private const float ExecuteLeadSeconds = 0.6f;
 	private const float AssistLeadSeconds = 10.0f;
 	private const float MissWindowSeconds = 1.5f;
+	private const float UnavailableSkipDelaySeconds = 0.35f;
 	private const float CountdownEndGraceSeconds = 2.0f;
 	private const float SyncLeadSeconds = ExecuteLeadSeconds;
 	private const string SyncEventChat = "chat";
@@ -486,6 +487,7 @@ public static class ImportedTimelineRuntime
 	private static bool _hasTimelineOffset;
 	private static bool _wasInCombat;
 	private static bool _wasCountdownActive;
+	private static bool _preparedFromCountdown;
 	private static readonly HashSet<int> _completedActionIndices = [];
 	private static readonly HashSet<int> _completedSyncIndices = [];
 	private static readonly Dictionary<ulong, uint> _observedHostileCasts = [];
@@ -563,10 +565,14 @@ public static class ImportedTimelineRuntime
 				break;
 			}
 
-			if (!TryGetGeneralSuppressionLeadSeconds(entry, out var suppressionLeadSeconds)
-				|| entry.CombatTimeSeconds > combatTime + suppressionLeadSeconds)
+			if (!TryGetGeneralSuppressionLeadSeconds(entry, out var suppressionLeadSeconds))
 			{
 				continue;
+			}
+
+			if (entry.CombatTimeSeconds > combatTime + suppressionLeadSeconds)
+			{
+				return false;
 			}
 
 			ActionTracer.Note($"Timeline suppress general profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
@@ -729,6 +735,7 @@ public static class ImportedTimelineRuntime
 					if (ShouldUseTimelineHostileTarget(entry, action) && !TryAssignScheduledHostileTarget(action))
 					{
 						ActionTracer.Note($"Timeline reject no hostile target profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
+						TrySkipUnavailableScheduledAction(profile, index, entry, combatTime);
 						continue;
 					}
 
@@ -745,6 +752,7 @@ public static class ImportedTimelineRuntime
 				}
 
 				ActionTracer.Note($"Timeline reject unavailable profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
+				TrySkipUnavailableScheduledAction(profile, index, entry, combatTime);
 			}
 			finally
 			{
@@ -765,6 +773,18 @@ public static class ImportedTimelineRuntime
 
 		_completedActionIndices.Add(index);
 		AdvanceCompletedOrExpiredActions(profile, combatTime);
+	}
+
+	private static void TrySkipUnavailableScheduledAction(ImportedTimelineProfile profile, int index, ImportedTimelineAction entry, float combatTime)
+	{
+		if (combatTime < entry.CombatTimeSeconds + UnavailableSkipDelaySeconds)
+		{
+			return;
+		}
+
+		_completedActionIndices.Add(index);
+		AdvanceCompletedOrExpiredActions(profile, combatTime);
+		ActionTracer.Note($"Timeline skip unavailable profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
 	}
 
 	private static float GetScheduleLeadSeconds(bool wantsGcd)
@@ -971,7 +991,7 @@ public static class ImportedTimelineRuntime
 		var countdownStarted = isCountdownActive && !_wasCountdownActive;
 		var combatStartedWithoutCountdown = DataCenter.InCombat
 			&& !_wasInCombat
-			&& !_wasCountdownActive
+			&& !_preparedFromCountdown
 			&& !isCountdownJustFinished;
 		var combatTimeRewound = !isCountdownActive && rawCombatTime + 0.01f < _lastRawCombatTime;
 		if (profileChanged || countdownStarted || combatStartedWithoutCountdown || combatTimeRewound)
@@ -990,6 +1010,7 @@ public static class ImportedTimelineRuntime
 		if (isCountdownActive)
 		{
 			_lastCountdownObservedTime = now;
+			_preparedFromCountdown = true;
 		}
 
 		UpdateCastSyncs(profile, rawCombatTime);
@@ -1099,7 +1120,7 @@ public static class ImportedTimelineRuntime
 		}
 
 		leadSeconds = action.Info.IsRealGCD
-			? GetGcdSuppressionLeadSeconds()
+			? GetScheduleLeadSeconds(true)
 			: GetScheduleLeadSeconds(false);
 		return true;
 	}
@@ -1370,6 +1391,7 @@ public static class ImportedTimelineRuntime
 		_hasTimelineOffset = false;
 		_wasInCombat = false;
 		_wasCountdownActive = false;
+		_preparedFromCountdown = false;
 		_completedActionIndices.Clear();
 		_completedSyncIndices.Clear();
 		_observedHostileCasts.Clear();
