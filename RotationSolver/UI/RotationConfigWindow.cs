@@ -1326,6 +1326,11 @@ public partial class RotationConfigWindow : Window
 			ImGui.TextWrapped(DataCenter.IsInDuty
 				? $"Imported timeline for {territoryName}"
 				: $"Preconfigure imported timeline for {territoryName}");
+			if (DataCenter.InCombat)
+			{
+				ImGui.TextColored(ImGuiColors.DalamudYellow, "Changing this during combat starts the imported timeline from the current combat time. Restart the encounter for opener actions.");
+			}
+
 			ImGui.SetNextItemWidth(Math.Max(comboSize, 320 * Scale));
 			var comboId = $"##ImportedTimelineDuty:{territoryType}:{(int)job}";
 			var previewName = GetImportedTimelineProfilePreviewName(profileId, "Disabled");
@@ -1442,34 +1447,43 @@ public partial class RotationConfigWindow : Window
 			.Where(profile => IsMatchingImportedTimelineSearch(profile, _importedTimelineLibrarySearch))
 			.ToArray();
 
+		ImGui.TextWrapped($"Library profiles: {filteredProfiles.Length}/{profiles.Length}");
+		if (!string.IsNullOrWhiteSpace(_importedTimelineLibrarySearch))
+		{
+			ImGui.SameLine();
+			if (ImGui.SmallButton("Clear filter##ImportedTimelineLibrarySearch"))
+			{
+				_importedTimelineLibrarySearch = string.Empty;
+				filteredProfiles = profiles;
+			}
+		}
+
 		var listHeight = Math.Min(260 * Scale, Math.Max(140 * Scale, ImGui.GetTextLineHeightWithSpacing() * 8));
-		var libraryVisible = ImGui.BeginChild("##ImportedTimelineLibrary", new Vector2(0, listHeight), true);
+		var listWidth = Math.Max(Math.Max(comboSize, 320 * Scale), ImGui.GetContentRegionAvail().X);
+		_ = ImGui.BeginChild("##ImportedTimelineLibrary", new Vector2(listWidth, listHeight), true);
 		try
 		{
-			if (libraryVisible)
+			if (filteredProfiles.Length == 0)
 			{
-				if (filteredProfiles.Length == 0)
+				ImGui.TextWrapped("No imported timeline profiles match the current filter.");
+			}
+			else
+			{
+				foreach (var profile in filteredProfiles)
 				{
-					ImGui.TextWrapped("No imported timeline profiles match the current filter.");
-				}
-				else
-				{
-					foreach (var profile in filteredProfiles)
+					var assignments = ImportedTimelineManager.GetAssignments(profile.ProfileId);
+					var label = GetImportedTimelineProfileLabel(profile);
+					if (assignments.Length > 0)
 					{
-						var assignments = ImportedTimelineManager.GetAssignments(profile.ProfileId);
-						var label = GetImportedTimelineProfileLabel(profile);
-						if (assignments.Length > 0)
-						{
-							label += $" ({assignments.Length} assignments)";
-						}
-
-						if (ImGui.Selectable(label, string.Equals(profile.ProfileId, _selectedImportedTimelineProfileId, StringComparison.OrdinalIgnoreCase)))
-						{
-							_selectedImportedTimelineProfileId = profile.ProfileId;
-						}
-
-						ImguiTooltips.HoveredTooltip(GetImportedTimelineProfileTooltip(profile));
+						label += $" ({assignments.Length} assignments)";
 					}
+
+					if (ImGui.Selectable($"{label}##ImportedTimelineProfile:{profile.ProfileId}", string.Equals(profile.ProfileId, _selectedImportedTimelineProfileId, StringComparison.OrdinalIgnoreCase)))
+					{
+						_selectedImportedTimelineProfileId = profile.ProfileId;
+					}
+
+					ImguiTooltips.HoveredTooltip(GetImportedTimelineProfileTooltip(profile));
 				}
 			}
 		}

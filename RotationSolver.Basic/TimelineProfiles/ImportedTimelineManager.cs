@@ -148,6 +148,7 @@ public static class ImportedTimelineManager
 
 		var key = GetDutyTimelineProfileChoiceKey(territoryType, job, combatType);
 		Service.Config.DutyTimelineProfileChoice ??= [];
+		Service.Config.DutyTimelineProfileChoice.TryGetValue(key, out var previousProfileId);
 		if (string.IsNullOrWhiteSpace(profileId))
 		{
 			Service.Config.DutyTimelineProfileChoice.TryRemove(key, out _);
@@ -156,6 +157,31 @@ public static class ImportedTimelineManager
 		{
 			Service.Config.DutyTimelineProfileChoice[key] = profileId;
 		}
+
+		if (!string.Equals(previousProfileId, profileId, StringComparison.OrdinalIgnoreCase)
+			&& IsCurrentRuntimeAssignment(territoryType, job, combatType))
+		{
+			ImportedTimelineRuntime.Reset();
+			ActionTracer.Note($"Timeline assignment changed territory={territoryType} job={job} combat={combatType} profile='{profileId ?? "Disabled"}'");
+		}
+	}
+
+	private static bool IsCurrentRuntimeAssignment(uint territoryType, Job job, CombatType combatType)
+	{
+		var currentCombatType = DataCenter.IsPvP ? CombatType.PvP : CombatType.PvE;
+		if (job != DataCenter.Job || combatType != currentCombatType)
+		{
+			return false;
+		}
+
+		if (DataCenter.IsInDuty && Svc.ClientState.TerritoryType != 0)
+		{
+			return territoryType == Svc.ClientState.TerritoryType;
+		}
+
+		return !DataCenter.IsPvP
+			&& Service.Config.DutyTimelineProfileTestTerritory != 0
+			&& territoryType == Service.Config.DutyTimelineProfileTestTerritory;
 	}
 
 	public static uint[] GetDutyTimelineProfileTerritories(Job job, CombatType combatType)
@@ -535,6 +561,12 @@ public static class ImportedTimelineRuntime
 				break;
 			}
 
+			if (!TryGetGeneralSuppressionLeadSeconds(entry, out var suppressionLeadSeconds)
+				|| entry.CombatTimeSeconds > combatTime + suppressionLeadSeconds)
+			{
+				continue;
+			}
+
 			ActionTracer.Note($"Timeline suppress general profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
 			return true;
 		}
@@ -564,6 +596,7 @@ public static class ImportedTimelineRuntime
 			return true;
 		}
 
+		var deferLookaheadSeconds = GetDeferLookaheadSeconds(wantsGcd);
 		for (var index = _nextActionIndex; index < profile.Actions.Count; index++)
 		{
 			if (_completedActionIndices.Contains(index))
@@ -577,7 +610,7 @@ public static class ImportedTimelineRuntime
 				continue;
 			}
 
-			if (entry.CombatTimeSeconds > combatTime + AssistLeadSeconds)
+			if (entry.CombatTimeSeconds > combatTime + deferLookaheadSeconds)
 			{
 				break;
 			}
@@ -918,9 +951,12 @@ public static class ImportedTimelineRuntime
 				? -countdownTime
 				: 0;
 
-		if (_activeProfileSignature != signature || (!isCountdownActive && rawCombatTime + 0.01f < _lastRawCombatTime))
+		var profileChanged = _activeProfileSignature != signature;
+		var combatTimeRewound = !isCountdownActive && rawCombatTime + 0.01f < _lastRawCombatTime;
+		if (profileChanged || combatTimeRewound)
 		{
 			ResetState(signature);
+			ActionTracer.Note($"Timeline activate profile='{profile.ProfileName}' raw={rawCombatTime:F3} territory={territoryType} inCombat={DataCenter.InCombat} countdown={countdownTime:F3}");
 		}
 
 		if (isCountdownActive)
@@ -1023,6 +1059,26 @@ public static class ImportedTimelineRuntime
 
 		return false;
 	}
+
+	private static bool TryGetGeneralSuppressionLeadSeconds(ImportedTimelineAction entry, out float leadSeconds)
+	{
+		leadSeconds = ExecuteLeadSeconds;
+		if (ResolveAction(entry.Id) is not IBaseAction action || !action.IsEnabled)
+		{
+			return false;
+		}
+
+		leadSeconds = action.Info.IsRealGCD
+			? GetGcdSuppressionLeadSeconds()
+			: GetScheduleLeadSeconds(false);
+		return true;
+	}
+
+	private static float GetDeferLookaheadSeconds(bool wantsGcd)
+		=> wantsGcd ? GetGcdSuppressionLeadSeconds() : AssistLeadSeconds;
+
+	private static float GetGcdSuppressionLeadSeconds()
+		=> MathF.Min(AssistLeadSeconds, MathF.Max(GetScheduleLeadSeconds(true), DataCenter.DefaultGCDTotal + ExecuteLeadSeconds));
 
 	private static bool DoesSyncMatchEvent(ImportedTimelineSync sync, string eventType, uint eventId, string message)
 	{
