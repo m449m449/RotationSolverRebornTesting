@@ -674,7 +674,7 @@ public static class ImportedTimelineRuntime
 			return false;
 		}
 
-		var leadSeconds = GetScheduleLeadSeconds(wantsGcd);
+		var leadSeconds = ExecuteLeadSeconds;
 		for (var index = _nextActionIndex; index < profile.Actions.Count; index++)
 		{
 			if (_completedActionIndices.Contains(index))
