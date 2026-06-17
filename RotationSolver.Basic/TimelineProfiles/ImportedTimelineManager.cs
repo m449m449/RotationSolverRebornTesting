@@ -565,14 +565,9 @@ public static class ImportedTimelineRuntime
 				break;
 			}
 
-			if (!TryGetGeneralSuppressionLeadSeconds(entry, out var suppressionLeadSeconds))
+			if (ResolveAction(entry.Id) is not IBaseAction action || !action.IsEnabled)
 			{
 				continue;
-			}
-
-			if (entry.CombatTimeSeconds > combatTime + suppressionLeadSeconds)
-			{
-				return false;
 			}
 
 			ActionTracer.Note($"Timeline suppress general profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
@@ -1109,20 +1104,6 @@ public static class ImportedTimelineRuntime
 		}
 
 		return false;
-	}
-
-	private static bool TryGetGeneralSuppressionLeadSeconds(ImportedTimelineAction entry, out float leadSeconds)
-	{
-		leadSeconds = ExecuteLeadSeconds;
-		if (ResolveAction(entry.Id) is not IBaseAction action || !action.IsEnabled)
-		{
-			return false;
-		}
-
-		leadSeconds = action.Info.IsRealGCD
-			? GetScheduleLeadSeconds(true)
-			: GetScheduleLeadSeconds(false);
-		return true;
 	}
 
 	private static float GetDeferLookaheadSeconds(bool wantsGcd)
