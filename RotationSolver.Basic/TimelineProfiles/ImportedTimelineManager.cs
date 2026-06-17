@@ -471,7 +471,7 @@ public static class ImportedTimelineRuntime
 {
 	private const float ExecuteLeadSeconds = 0.6f;
 	private const float AssistLeadSeconds = 10.0f;
-	private const float MissWindowSeconds = 6.0f;
+	private const float MissWindowSeconds = 1.5f;
 	private const float CountdownEndGraceSeconds = 2.0f;
 	private const float SyncLeadSeconds = ExecuteLeadSeconds;
 	private const string SyncEventChat = "chat";
@@ -484,6 +484,8 @@ public static class ImportedTimelineRuntime
 	private static float _lastRawCombatTime;
 	private static float _timelineOffsetSeconds;
 	private static bool _hasTimelineOffset;
+	private static bool _wasInCombat;
+	private static bool _wasCountdownActive;
 	private static readonly HashSet<int> _completedActionIndices = [];
 	private static readonly HashSet<int> _completedSyncIndices = [];
 	private static readonly Dictionary<ulong, uint> _observedHostileCasts = [];
@@ -712,6 +714,7 @@ public static class ImportedTimelineRuntime
 					&& TryUseScheduledGcdFallback(entry, action, out act))
 				{
 					ActionTracer.Note($"Timeline reserve hostile GCD profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
+					TryConsumeScheduledAction(profile, index, entry, combatTime);
 					return true;
 				}
 
@@ -730,12 +733,14 @@ public static class ImportedTimelineRuntime
 					}
 
 					ActionTracer.Note($"Timeline accept profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
+					TryConsumeScheduledAction(profile, index, entry, combatTime);
 					return true;
 				}
 
 				if (wantsGcd && TryUseScheduledGcdFallback(entry, action, out act))
 				{
 					ActionTracer.Note($"Timeline reserve GCD profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
+					TryConsumeScheduledAction(profile, index, entry, combatTime);
 					return true;
 				}
 
@@ -749,6 +754,17 @@ public static class ImportedTimelineRuntime
 		}
 
 		return false;
+	}
+
+	private static void TryConsumeScheduledAction(ImportedTimelineProfile profile, int index, ImportedTimelineAction entry, float combatTime)
+	{
+		if (combatTime < entry.CombatTimeSeconds - ExecuteLeadSeconds)
+		{
+			return;
+		}
+
+		_completedActionIndices.Add(index);
+		AdvanceCompletedOrExpiredActions(profile, combatTime);
 	}
 
 	private static float GetScheduleLeadSeconds(bool wantsGcd)
@@ -952,11 +968,23 @@ public static class ImportedTimelineRuntime
 				: 0;
 
 		var profileChanged = _activeProfileSignature != signature;
+		var countdownStarted = isCountdownActive && !_wasCountdownActive;
+		var combatStartedWithoutCountdown = DataCenter.InCombat
+			&& !_wasInCombat
+			&& !_wasCountdownActive
+			&& !isCountdownJustFinished;
 		var combatTimeRewound = !isCountdownActive && rawCombatTime + 0.01f < _lastRawCombatTime;
-		if (profileChanged || combatTimeRewound)
+		if (profileChanged || countdownStarted || combatStartedWithoutCountdown || combatTimeRewound)
 		{
 			ResetState(signature);
-			ActionTracer.Note($"Timeline activate profile='{profile.ProfileName}' raw={rawCombatTime:F3} territory={territoryType} inCombat={DataCenter.InCombat} countdown={countdownTime:F3}");
+			var reason = profileChanged
+				? "profile"
+				: countdownStarted
+					? "countdown"
+					: combatStartedWithoutCountdown
+						? "combat"
+						: "rewind";
+			ActionTracer.Note($"Timeline activate profile='{profile.ProfileName}' reason={reason} raw={rawCombatTime:F3} territory={territoryType} inCombat={DataCenter.InCombat} countdown={countdownTime:F3}");
 		}
 
 		if (isCountdownActive)
@@ -968,6 +996,8 @@ public static class ImportedTimelineRuntime
 		combatTime = ApplyTimelineOffset(rawCombatTime);
 		_lastRawCombatTime = rawCombatTime;
 		_lastCombatTime = combatTime;
+		_wasInCombat = DataCenter.InCombat;
+		_wasCountdownActive = isCountdownActive;
 		SyncWithRecentActions(profile, combatTime);
 		AdvanceCompletedOrExpiredActions(profile, combatTime);
 		return true;
@@ -1338,6 +1368,8 @@ public static class ImportedTimelineRuntime
 		_lastRawCombatTime = 0;
 		_timelineOffsetSeconds = 0;
 		_hasTimelineOffset = false;
+		_wasInCombat = false;
+		_wasCountdownActive = false;
 		_completedActionIndices.Clear();
 		_completedSyncIndices.Clear();
 		_observedHostileCasts.Clear();
