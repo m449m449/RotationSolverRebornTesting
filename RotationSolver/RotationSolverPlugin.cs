@@ -201,6 +201,7 @@ public sealed class RotationSolverPlugin : IAsyncDalamudPlugin
 
 	private static void ClientState_TerritoryChanged(uint id)
 	{
+		ImportedTimelineRuntime.Reset();
 		DataCenter.ResetAllRecords();
 
 		if (id == 0)
@@ -248,6 +249,7 @@ public sealed class RotationSolverPlugin : IAsyncDalamudPlugin
 			return;
 		}
 
+		ImportedTimelineRuntime.Reset();
 		DataCenter.ResetAllRecords();
 	}
 

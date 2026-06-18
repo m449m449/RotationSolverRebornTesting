@@ -474,6 +474,7 @@ public static class ImportedTimelineRuntime
 	private const float MissWindowSeconds = 1.5f;
 	private const float UnavailableSkipDelaySeconds = 0.35f;
 	private const float CountdownEndGraceSeconds = 2.0f;
+	private const float SyncTransitionGraceSeconds = 45.0f;
 	private const float SyncLeadSeconds = ExecuteLeadSeconds;
 	private static readonly TimeSpan ReturnedScheduledActionDeferBypassDuration = TimeSpan.FromMilliseconds(250);
 	private const string SyncEventChat = "chat";
@@ -482,6 +483,7 @@ public static class ImportedTimelineRuntime
 	private static int _nextActionIndex;
 	private static DateTime _lastObservedActionTime = DateTime.Now;
 	private static DateTime _lastCountdownObservedTime = DateTime.MinValue;
+	private static DateTime _lastSyncAppliedTime = DateTime.MinValue;
 	private static DateTime _lastReturnedScheduledActionTime = DateTime.MinValue;
 	private static uint _lastReturnedScheduledActionId;
 	private static uint _lastReturnedScheduledAdjustedActionId;
@@ -494,6 +496,7 @@ public static class ImportedTimelineRuntime
 	private static bool _wasInCombat;
 	private static bool _wasCountdownActive;
 	private static bool _preparedFromCountdown;
+	private static bool _preparedFromSync;
 	private static bool _lastReturnedScheduledActionWasGcd;
 	private static readonly HashSet<int> _completedActionIndices = [];
 	private static readonly HashSet<int> _completedSyncIndices = [];
@@ -514,15 +517,20 @@ public static class ImportedTimelineRuntime
 
 	public static void NotifyChatMessage(string chatType, string sender, string message)
 	{
-		if (string.IsNullOrWhiteSpace(message)
-			|| DataCenter.CurrentRotation == null
-			|| !DataCenter.InCombat)
+		if (string.IsNullOrWhiteSpace(message))
 		{
 			return;
 		}
 
-		if (!TryGetActiveProfile(out var territoryType, out var profile) || profile == null || profile.Syncs.Count == 0)
+		if (!TryGetActiveProfile(out var territoryType, out var profile) || profile == null)
 		{
+			TraceIgnoredChatSync("noProfile", chatType, sender, message);
+			return;
+		}
+
+		if (profile.Syncs.Count == 0)
+		{
+			TraceIgnoredChatSync("noSyncs", chatType, sender, message);
 			return;
 		}
 
@@ -532,11 +540,21 @@ public static class ImportedTimelineRuntime
 			ResetState(signature);
 		}
 
-		var rawCombatTime = DataCenter.CombatTimeRaw;
+		var rawCombatTime = DataCenter.InCombat ? DataCenter.CombatTimeRaw : 0;
 		if (!TryApplyTimelineSync(profile, rawCombatTime, SyncEventChat, 0, message, sender, chatType))
 		{
-			ActionTracer.Note($"Timeline chat sync no match profile='{profile.ProfileName}' raw={rawCombatTime:F3} chat='{chatType}' sender='{TraceText(sender)}' message='{TraceText(message)}'");
+			ActionTracer.Note($"Timeline chat sync no match profile='{profile.ProfileName}' raw={rawCombatTime:F3} inCombat={DataCenter.InCombat} rotation={DataCenter.CurrentRotation != null} chat='{chatType}' sender='{TraceText(sender)}' message='{TraceText(message)}'");
 		}
+	}
+
+	private static void TraceIgnoredChatSync(string reason, string chatType, string sender, string message)
+	{
+		if (!DataCenter.InCombat && string.IsNullOrEmpty(_activeProfileSignature))
+		{
+			return;
+		}
+
+		ActionTracer.Note($"Timeline chat sync ignored reason={reason} inCombat={DataCenter.InCombat} rotation={DataCenter.CurrentRotation != null} chat='{chatType}' sender='{TraceText(sender)}' message='{TraceText(message)}'");
 	}
 
 	internal static bool IsUsingProfile(string profileId)
@@ -1021,8 +1039,11 @@ public static class ImportedTimelineRuntime
 		var isCountdownJustFinished = !DataCenter.InCombat
 			&& _lastCountdownObservedTime != DateTime.MinValue
 			&& now - _lastCountdownObservedTime <= TimeSpan.FromSeconds(CountdownEndGraceSeconds);
+		var isSyncTransitionActive = !DataCenter.InCombat
+			&& _preparedFromSync
+			&& now - _lastSyncAppliedTime <= TimeSpan.FromSeconds(SyncTransitionGraceSeconds);
 
-		if (!DataCenter.InCombat && !isCountdownActive && !isCountdownJustFinished)
+		if (!DataCenter.InCombat && !isCountdownActive && !isCountdownJustFinished && !isSyncTransitionActive)
 		{
 			ResetState();
 			return false;
@@ -1046,6 +1067,7 @@ public static class ImportedTimelineRuntime
 		var combatStartedWithoutCountdown = DataCenter.InCombat
 			&& !_wasInCombat
 			&& !_preparedFromCountdown
+			&& !_preparedFromSync
 			&& !isCountdownJustFinished;
 		var combatTimeRewound = !isCountdownActive && rawCombatTime + 0.01f < _lastRawCombatTime;
 		if (profileChanged || countdownStarted || combatStartedWithoutCountdown || combatTimeRewound)
@@ -1073,6 +1095,10 @@ public static class ImportedTimelineRuntime
 		_lastCombatTime = combatTime;
 		_wasInCombat = DataCenter.InCombat;
 		_wasCountdownActive = isCountdownActive;
+		if (DataCenter.InCombat)
+		{
+			_preparedFromSync = false;
+		}
 		SyncWithRecentActions(profile, combatTime);
 		AdvanceCompletedOrExpiredActions(profile, combatTime);
 		return true;
@@ -1271,6 +1297,8 @@ public static class ImportedTimelineRuntime
 		_lastCombatTime = syncedCombatTime;
 		_wasInCombat = DataCenter.InCombat;
 		_wasCountdownActive = false;
+		_preparedFromSync = true;
+		_lastSyncAppliedTime = DateTime.Now;
 
 		if (sync.Once)
 		{
@@ -1490,6 +1518,7 @@ public static class ImportedTimelineRuntime
 		_nextActionIndex = 0;
 		_lastObservedActionTime = DateTime.Now;
 		_lastCountdownObservedTime = DateTime.MinValue;
+		_lastSyncAppliedTime = DateTime.MinValue;
 		_lastReturnedScheduledActionTime = DateTime.MinValue;
 		_lastReturnedScheduledActionId = 0;
 		_lastReturnedScheduledAdjustedActionId = 0;
@@ -1502,6 +1531,7 @@ public static class ImportedTimelineRuntime
 		_wasInCombat = false;
 		_wasCountdownActive = false;
 		_preparedFromCountdown = false;
+		_preparedFromSync = false;
 		_lastReturnedScheduledActionWasGcd = false;
 		_completedActionIndices.Clear();
 		_completedSyncIndices.Clear();
