@@ -752,6 +752,12 @@ public static class ImportedTimelineRuntime
 
 			if (action.Info.IsRealGCD != wantsGcd)
 			{
+				if (wantsGcd && !action.Info.IsRealGCD)
+				{
+					ActionTracer.Note($"Timeline pass earlier ability profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
+					continue;
+				}
+
 				ActionTracer.Note($"Timeline wait earlier profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
 				return false;
 			}
@@ -765,7 +771,6 @@ public static class ImportedTimelineRuntime
 					&& TryUseScheduledGcdFallback(entry, action, out act))
 				{
 					ActionTracer.Note($"Timeline reserve hostile GCD profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
-					TryConsumeScheduledAction(profile, index, entry, combatTime);
 					RememberReturnedScheduledAction(act, action, wantsGcd);
 					return true;
 				}
@@ -786,7 +791,6 @@ public static class ImportedTimelineRuntime
 					}
 
 					ActionTracer.Note($"Timeline accept profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
-					TryConsumeScheduledAction(profile, index, entry, combatTime);
 					RememberReturnedScheduledAction(act, action, wantsGcd);
 					return true;
 				}
@@ -794,7 +798,6 @@ public static class ImportedTimelineRuntime
 				if (wantsGcd && TryUseScheduledGcdFallback(entry, action, out act))
 				{
 					ActionTracer.Note($"Timeline reserve GCD profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
-					TryConsumeScheduledAction(profile, index, entry, combatTime);
 					RememberReturnedScheduledAction(act, action, wantsGcd);
 					return true;
 				}
@@ -810,17 +813,6 @@ public static class ImportedTimelineRuntime
 		}
 
 		return false;
-	}
-
-	private static void TryConsumeScheduledAction(ImportedTimelineProfile profile, int index, ImportedTimelineAction entry, float combatTime)
-	{
-		if (combatTime < entry.CombatTimeSeconds - ExecuteLeadSeconds)
-		{
-			return;
-		}
-
-		_completedActionIndices.Add(index);
-		AdvanceCompletedOrExpiredActions(profile, combatTime);
 	}
 
 	private static void TrySkipUnavailableScheduledAction(ImportedTimelineProfile profile, int index, ImportedTimelineAction entry, float combatTime)
@@ -1319,6 +1311,7 @@ public static class ImportedTimelineRuntime
 				if (DoesEntryMatchAction(entry, latestActionId))
 				{
 					_completedActionIndices.Add(index);
+					ActionTracer.Note($"Timeline observed profile='{profile.ProfileName}' used={latestActionId} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
 					break;
 				}
 			}
