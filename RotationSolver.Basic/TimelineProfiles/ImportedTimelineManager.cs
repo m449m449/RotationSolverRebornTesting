@@ -3,6 +3,7 @@ using ECommons.ExcelServices;
 using ECommons.GameHelpers;
 using ECommons.Logging;
 using Dalamud.Game.ClientState.Objects.SubKinds;
+using Lumina.Excel.Sheets;
 using RotationSolver.Basic.Data;
 using RotationSolver.Basic.Helpers;
 
@@ -476,6 +477,8 @@ public static class ImportedTimelineRuntime
 	private const float CountdownEndGraceSeconds = 2.0f;
 	private const float SyncTransitionGraceSeconds = 45.0f;
 	private const float SyncLeadSeconds = ExecuteLeadSeconds;
+	private const uint TimelineItemIdFlag = 0x02000000;
+	private const uint HighQualityItemIdOffset = 1_000_000;
 	private static readonly TimeSpan ReturnedScheduledActionDeferBypassDuration = TimeSpan.FromMilliseconds(250);
 	private const string SyncEventChat = "chat";
 	private const string SyncEventCast = "cast";
@@ -501,6 +504,7 @@ public static class ImportedTimelineRuntime
 	private static readonly HashSet<int> _completedActionIndices = [];
 	private static readonly HashSet<int> _completedSyncIndices = [];
 	private static readonly Dictionary<ulong, uint> _observedHostileCasts = [];
+	private static readonly Dictionary<uint, IBaseItem?> _resolvedTimelineItems = [];
 
 	public static bool TryGetActiveProfile(out ImportedTimelineProfile? profile)
 		=> TryGetActiveProfile(out _, out profile);
@@ -604,7 +608,7 @@ public static class ImportedTimelineRuntime
 				break;
 			}
 
-			if (ResolveAction(entry.Id) is not IBaseAction action || !action.IsEnabled)
+			if (ResolveAction(entry.Id) is not { } action || !IsTimelineEntryEnabled(action))
 			{
 				continue;
 			}
@@ -731,6 +735,16 @@ public static class ImportedTimelineRuntime
 			}
 
 			var resolved = ResolveAction(entry.Id);
+			if (resolved is IBaseItem scheduledItem)
+			{
+				if (wantsGcd || !IsTimelineItemEnabled(scheduledItem))
+				{
+					continue;
+				}
+
+				return !DoesEntryMatchAction(entry, candidate);
+			}
+
 			if (resolved is not IBaseAction scheduled || scheduled.Info.IsRealGCD != wantsGcd || !scheduled.IsEnabled)
 			{
 				continue;
@@ -777,6 +791,25 @@ public static class ImportedTimelineRuntime
 			}
 
 			var resolved = ResolveAction(entry.Id);
+			if (resolved is IBaseItem item)
+			{
+				if (wantsGcd)
+				{
+					ActionTracer.Note($"Timeline pass earlier item profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
+					continue;
+				}
+
+				if (IsTimelineItemEnabled(item) && item.CanUse(out act))
+				{
+					ActionTracer.Note($"Timeline accept item profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3} item={item.ID}");
+					return true;
+				}
+
+				ActionTracer.Note($"Timeline reject unavailable item profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3} item={item.ID}");
+				TrySkipUnavailableScheduledAction(profile, index, entry, combatTime);
+				continue;
+			}
+
 			if (resolved is not IBaseAction action || !action.IsEnabled)
 			{
 				continue;
@@ -1459,6 +1492,11 @@ public static class ImportedTimelineRuntime
 			return true;
 		}
 
+		if (DoesTimelineItemIdMatch(entry.Id, actionId))
+		{
+			return true;
+		}
+
 		var resolved = ResolveAction(entry.Id);
 		return resolved != null && (resolved.ID == actionId || resolved.AdjustedID == actionId);
 	}
@@ -1466,6 +1504,11 @@ public static class ImportedTimelineRuntime
 	private static bool DoesEntryMatchAction(ImportedTimelineAction entry, IAction action)
 	{
 		if (entry.Id == action.ID || entry.Id == action.AdjustedID)
+		{
+			return true;
+		}
+
+		if (DoesTimelineItemIdMatch(entry.Id, action.ID) || DoesTimelineItemIdMatch(entry.Id, action.AdjustedID))
 		{
 			return true;
 		}
@@ -1485,7 +1528,84 @@ public static class ImportedTimelineRuntime
 		var id = (ActionID)actionId;
 
 		return id.GetActionFromID(false, rotationActions, dutyActions)
-			?? id.GetActionFromID(true, rotationActions, dutyActions);
+			?? id.GetActionFromID(true, rotationActions, dutyActions)
+			?? ResolveTimelineItem(actionId);
+	}
+
+	private static bool IsTimelineEntryEnabled(IAction action)
+		=> action switch
+		{
+			IBaseAction baseAction => baseAction.IsEnabled,
+			IBaseItem item => IsTimelineItemEnabled(item),
+			_ => false,
+		};
+
+	private static bool IsTimelineItemEnabled(IBaseItem item)
+		=> item.HasIt && (item is not BaseItem baseItem || baseItem.IsEnabled);
+
+	private static IBaseItem? ResolveTimelineItem(uint timelineId)
+	{
+		if (!TryNormalizeTimelineItemId(timelineId, out var itemId))
+		{
+			return null;
+		}
+
+		if (_resolvedTimelineItems.TryGetValue(itemId, out var item))
+		{
+			return item;
+		}
+
+		try
+		{
+			var itemRow = Service.GetSheet<Item>().GetRow(itemId)!;
+			item = itemRow.RowId == 0 ? null : new BaseItem(itemRow);
+		}
+		catch
+		{
+			item = null;
+		}
+
+		_resolvedTimelineItems[itemId] = item;
+		return item;
+	}
+
+	private static bool TryNormalizeTimelineItemId(uint timelineId, out uint itemId)
+	{
+		itemId = 0;
+
+		if (timelineId >= TimelineItemIdFlag)
+		{
+			timelineId -= TimelineItemIdFlag;
+		}
+		else if (timelineId >= HighQualityItemIdOffset)
+		{
+			timelineId -= HighQualityItemIdOffset;
+		}
+		else
+		{
+			return false;
+		}
+
+		if (timelineId >= HighQualityItemIdOffset)
+		{
+			timelineId -= HighQualityItemIdOffset;
+		}
+
+		itemId = timelineId;
+		return itemId != 0;
+	}
+
+	private static bool DoesTimelineItemIdMatch(uint timelineId, uint actionId)
+	{
+		if (!TryNormalizeTimelineItemId(timelineId, out var itemId))
+		{
+			return false;
+		}
+
+		return actionId == itemId
+			|| actionId == itemId + HighQualityItemIdOffset
+			|| actionId == itemId + TimelineItemIdFlag
+			|| actionId == itemId + TimelineItemIdFlag + HighQualityItemIdOffset;
 	}
 
 	private static bool TryGetActiveTerritoryType(out uint territoryType)
@@ -1536,5 +1656,6 @@ public static class ImportedTimelineRuntime
 		_completedActionIndices.Clear();
 		_completedSyncIndices.Clear();
 		_observedHostileCasts.Clear();
+		_resolvedTimelineItems.Clear();
 	}
 }
