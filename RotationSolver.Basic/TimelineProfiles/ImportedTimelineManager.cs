@@ -502,6 +502,16 @@ public static class ImportedTimelineRuntime
 	public static bool TryGetActiveProfile(out ImportedTimelineProfile? profile)
 		=> TryGetActiveProfile(out _, out profile);
 
+	public static bool TryGetCurrentTimelineTime(out float combatTime, out float rawCombatTime, out float offsetSeconds)
+	{
+		rawCombatTime = DataCenter.InCombat
+			? DataCenter.CombatTimeRaw
+			: _lastRawCombatTime;
+		offsetSeconds = _hasTimelineOffset ? _timelineOffsetSeconds : 0;
+		combatTime = rawCombatTime >= 0 ? rawCombatTime + offsetSeconds : rawCombatTime;
+		return TryGetActiveProfile(out _, out var profile) && profile != null;
+	}
+
 	public static void NotifyChatMessage(string chatType, string sender, string message)
 	{
 		if (string.IsNullOrWhiteSpace(message)
@@ -522,7 +532,11 @@ public static class ImportedTimelineRuntime
 			ResetState(signature);
 		}
 
-		TryApplyTimelineSync(profile, DataCenter.CombatTimeRaw, SyncEventChat, 0, message, sender, chatType);
+		var rawCombatTime = DataCenter.CombatTimeRaw;
+		if (!TryApplyTimelineSync(profile, rawCombatTime, SyncEventChat, 0, message, sender, chatType))
+		{
+			ActionTracer.Note($"Timeline chat sync no match profile='{profile.ProfileName}' raw={rawCombatTime:F3} chat='{chatType}' sender='{TraceText(sender)}' message='{TraceText(message)}'");
+		}
 	}
 
 	internal static bool IsUsingProfile(string profileId)
@@ -1126,6 +1140,9 @@ public static class ImportedTimelineRuntime
 		}
 
 		var currentCombatTime = ApplyTimelineOffset(rawCombatTime);
+		var fallbackSyncIndex = -1;
+		ImportedTimelineSync? fallbackSync = null;
+		var fallbackSyncMatches = 0;
 		for (var index = 0; index < profile.Syncs.Count; index++)
 		{
 			var sync = profile.Syncs[index];
@@ -1141,11 +1158,40 @@ public static class ImportedTimelineRuntime
 
 			if (!IsSyncWithinWindow(sync, currentCombatTime))
 			{
+				ActionTracer.Note(
+					$"Timeline sync outside window profile='{profile.ProfileName}' type='{eventType}' marker='{GetSyncTraceName(sync)}' current={currentCombatTime:F3} sync={sync.CombatTimeSeconds:F3} window=[-{sync.WindowBeforeSeconds:F3},+{sync.WindowAfterSeconds:F3}]");
+
+				if (string.Equals(eventType, SyncEventChat, StringComparison.OrdinalIgnoreCase))
+				{
+					fallbackSyncMatches++;
+					if (fallbackSyncMatches == 1)
+					{
+						fallbackSyncIndex = index;
+						fallbackSync = sync;
+					}
+				}
+
 				continue;
 			}
 
 			ApplyTimelineSync(profile, index, sync, rawCombatTime, currentCombatTime, eventType, eventId, sender, chatType);
 			return true;
+		}
+
+		if (string.Equals(eventType, SyncEventChat, StringComparison.OrdinalIgnoreCase))
+		{
+			if (fallbackSyncMatches == 1 && fallbackSync != null)
+			{
+				ActionTracer.Note(
+					$"Timeline chat sync fallback profile='{profile.ProfileName}' marker='{GetSyncTraceName(fallbackSync)}' raw={rawCombatTime:F3} from={currentCombatTime:F3} to={fallbackSync.CombatTimeSeconds:F3}");
+				ApplyTimelineSync(profile, fallbackSyncIndex, fallbackSync, rawCombatTime, currentCombatTime, eventType, eventId, sender, chatType);
+				return true;
+			}
+
+			if (fallbackSyncMatches > 1)
+			{
+				ActionTracer.Note($"Timeline chat sync ambiguous profile='{profile.ProfileName}' raw={rawCombatTime:F3} matches={fallbackSyncMatches} message='{TraceText(message)}'");
+			}
 		}
 
 		return false;
@@ -1221,6 +1267,10 @@ public static class ImportedTimelineRuntime
 		var syncedCombatTime = (float)sync.CombatTimeSeconds;
 		_timelineOffsetSeconds = syncedCombatTime - rawCombatTime;
 		_hasTimelineOffset = true;
+		_lastRawCombatTime = rawCombatTime;
+		_lastCombatTime = syncedCombatTime;
+		_wasInCombat = DataCenter.InCombat;
+		_wasCountdownActive = false;
 
 		if (sync.Once)
 		{
@@ -1229,11 +1279,39 @@ public static class ImportedTimelineRuntime
 
 		SetTimelinePosition(profile, syncedCombatTime);
 
-		var syncName = !string.IsNullOrWhiteSpace(sync.Phase)
-			? sync.Phase
-			: sync.Name;
 		ActionTracer.Note(
-			$"Timeline sync profile='{profile.ProfileName}' type='{eventType}' id={eventId} chat='{chatType}' sender='{sender}' marker='{syncName}' raw={rawCombatTime:F3} from={previousCombatTime:F3} to={syncedCombatTime:F3} offset={_timelineOffsetSeconds:F3}");
+			$"Timeline sync profile='{profile.ProfileName}' type='{eventType}' id={eventId} chat='{chatType}' sender='{TraceText(sender)}' marker='{GetSyncTraceName(sync)}' raw={rawCombatTime:F3} from={previousCombatTime:F3} to={syncedCombatTime:F3} offset={_timelineOffsetSeconds:F3}");
+	}
+
+	private static string GetSyncTraceName(ImportedTimelineSync sync)
+	{
+		if (!string.IsNullOrWhiteSpace(sync.Phase))
+		{
+			return TraceText(sync.Phase);
+		}
+
+		if (!string.IsNullOrWhiteSpace(sync.Name))
+		{
+			return TraceText(sync.Name);
+		}
+
+		if (!string.IsNullOrWhiteSpace(sync.Pattern))
+		{
+			return TraceText(sync.Pattern);
+		}
+
+		return sync.Id.ToString();
+	}
+
+	private static string TraceText(string? value)
+	{
+		if (string.IsNullOrEmpty(value))
+		{
+			return string.Empty;
+		}
+
+		value = value.Replace('\r', ' ').Replace('\n', ' ').Trim();
+		return value.Length <= 80 ? value : string.Concat(value.AsSpan(0, 77), "...");
 	}
 
 	private static void SetTimelinePosition(ImportedTimelineProfile profile, float combatTime)

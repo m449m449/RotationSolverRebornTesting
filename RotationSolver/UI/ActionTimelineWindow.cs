@@ -2,6 +2,7 @@ using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using ECommons.GameHelpers;
 using RotationSolver.ActionTimeline;
+using RotationSolver.Basic.TimelineProfiles;
 
 namespace RotationSolver.UI;
 
@@ -232,7 +233,11 @@ internal class ActionTimelineWindow : Window
 	private static void DrawCombatTime(Vector2 pos, Vector2 size)
 	{
 		var drawList = ImGui.GetWindowDrawList();
-		var label = $"combatTime {DataCenter.CombatTimeRaw:F2}s";
+		var label = ImportedTimelineRuntime.TryGetCurrentTimelineTime(out var timelineTime, out var rawTime, out var offsetSeconds)
+			? Math.Abs(offsetSeconds) > 0.001f
+				? $"timeline {timelineTime:F2}s raw {rawTime:F2}s"
+				: $"timeline {timelineTime:F2}s"
+			: $"combatTime {DataCenter.CombatTimeRaw:F2}s";
 		var textSize = ImGui.CalcTextSize(label);
 		var padding = new Vector2(6, 3);
 		var margin = new Vector2(6, 4);
