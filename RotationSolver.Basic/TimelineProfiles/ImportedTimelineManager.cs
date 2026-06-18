@@ -475,12 +475,18 @@ public static class ImportedTimelineRuntime
 	private const float UnavailableSkipDelaySeconds = 0.35f;
 	private const float CountdownEndGraceSeconds = 2.0f;
 	private const float SyncLeadSeconds = ExecuteLeadSeconds;
+	private static readonly TimeSpan ReturnedScheduledActionDeferBypassDuration = TimeSpan.FromMilliseconds(250);
 	private const string SyncEventChat = "chat";
 	private const string SyncEventCast = "cast";
 	private static string _activeProfileSignature = string.Empty;
 	private static int _nextActionIndex;
 	private static DateTime _lastObservedActionTime = DateTime.Now;
 	private static DateTime _lastCountdownObservedTime = DateTime.MinValue;
+	private static DateTime _lastReturnedScheduledActionTime = DateTime.MinValue;
+	private static uint _lastReturnedScheduledActionId;
+	private static uint _lastReturnedScheduledAdjustedActionId;
+	private static uint _lastReturnedScheduledSourceActionId;
+	private static uint _lastReturnedScheduledSourceAdjustedActionId;
 	private static float _lastCombatTime;
 	private static float _lastRawCombatTime;
 	private static float _timelineOffsetSeconds;
@@ -488,6 +494,7 @@ public static class ImportedTimelineRuntime
 	private static bool _wasInCombat;
 	private static bool _wasCountdownActive;
 	private static bool _preparedFromCountdown;
+	private static bool _lastReturnedScheduledActionWasGcd;
 	private static readonly HashSet<int> _completedActionIndices = [];
 	private static readonly HashSet<int> _completedSyncIndices = [];
 	private static readonly Dictionary<ulong, uint> _observedHostileCasts = [];
@@ -589,6 +596,11 @@ public static class ImportedTimelineRuntime
 			return false;
 		}
 
+		if (IsRecentlyReturnedScheduledAction(action, wantsGcd))
+		{
+			return false;
+		}
+
 		if (!TryPrepareActiveProfile(out var profile, out var combatTime) || profile == null)
 		{
 			return false;
@@ -626,6 +638,44 @@ public static class ImportedTimelineRuntime
 
 		return false;
 	}
+
+	private static void RememberReturnedScheduledAction(IAction? returnedAction, IBaseAction sourceAction, bool wantsGcd)
+	{
+		_lastReturnedScheduledActionTime = DateTime.Now;
+		_lastReturnedScheduledActionWasGcd = wantsGcd;
+		_lastReturnedScheduledSourceActionId = sourceAction.ID;
+		_lastReturnedScheduledSourceAdjustedActionId = sourceAction.AdjustedID;
+
+		if (returnedAction is IBaseAction returnedBaseAction)
+		{
+			_lastReturnedScheduledActionId = returnedBaseAction.ID;
+			_lastReturnedScheduledAdjustedActionId = returnedBaseAction.AdjustedID;
+			return;
+		}
+
+		_lastReturnedScheduledActionId = sourceAction.ID;
+		_lastReturnedScheduledAdjustedActionId = sourceAction.AdjustedID;
+	}
+
+	private static bool IsRecentlyReturnedScheduledAction(IBaseAction action, bool wantsGcd)
+	{
+		if (_lastReturnedScheduledActionWasGcd != wantsGcd
+			|| _lastReturnedScheduledActionTime == DateTime.MinValue
+			|| DateTime.Now - _lastReturnedScheduledActionTime > ReturnedScheduledActionDeferBypassDuration)
+		{
+			return false;
+		}
+
+		return MatchesRecentReturnedScheduledActionId(action.ID)
+			|| MatchesRecentReturnedScheduledActionId(action.AdjustedID);
+	}
+
+	private static bool MatchesRecentReturnedScheduledActionId(uint actionId)
+		=> actionId != 0
+			&& (actionId == _lastReturnedScheduledActionId
+				|| actionId == _lastReturnedScheduledAdjustedActionId
+				|| actionId == _lastReturnedScheduledSourceActionId
+				|| actionId == _lastReturnedScheduledSourceAdjustedActionId);
 
 	private static bool ShouldHoldForDueScheduledAction(ImportedTimelineProfile profile, float combatTime, IBaseAction candidate, bool wantsGcd)
 	{
@@ -716,6 +766,7 @@ public static class ImportedTimelineRuntime
 				{
 					ActionTracer.Note($"Timeline reserve hostile GCD profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
 					TryConsumeScheduledAction(profile, index, entry, combatTime);
+					RememberReturnedScheduledAction(act, action, wantsGcd);
 					return true;
 				}
 
@@ -736,6 +787,7 @@ public static class ImportedTimelineRuntime
 
 					ActionTracer.Note($"Timeline accept profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
 					TryConsumeScheduledAction(profile, index, entry, combatTime);
+					RememberReturnedScheduledAction(act, action, wantsGcd);
 					return true;
 				}
 
@@ -743,6 +795,7 @@ public static class ImportedTimelineRuntime
 				{
 					ActionTracer.Note($"Timeline reserve GCD profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
 					TryConsumeScheduledAction(profile, index, entry, combatTime);
+					RememberReturnedScheduledAction(act, action, wantsGcd);
 					return true;
 				}
 
@@ -1366,6 +1419,11 @@ public static class ImportedTimelineRuntime
 		_nextActionIndex = 0;
 		_lastObservedActionTime = DateTime.Now;
 		_lastCountdownObservedTime = DateTime.MinValue;
+		_lastReturnedScheduledActionTime = DateTime.MinValue;
+		_lastReturnedScheduledActionId = 0;
+		_lastReturnedScheduledAdjustedActionId = 0;
+		_lastReturnedScheduledSourceActionId = 0;
+		_lastReturnedScheduledSourceAdjustedActionId = 0;
 		_lastCombatTime = 0;
 		_lastRawCombatTime = 0;
 		_timelineOffsetSeconds = 0;
@@ -1373,6 +1431,7 @@ public static class ImportedTimelineRuntime
 		_wasInCombat = false;
 		_wasCountdownActive = false;
 		_preparedFromCountdown = false;
+		_lastReturnedScheduledActionWasGcd = false;
 		_completedActionIndices.Clear();
 		_completedSyncIndices.Clear();
 		_observedHostileCasts.Clear();
