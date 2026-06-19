@@ -839,6 +839,12 @@ public static class ImportedTimelineRuntime
 					continue;
 				}
 
+				if (!wantsGcd && action.Info.IsRealGCD && !action.Cooldown.CooldownCheck(true, 0))
+				{
+					ActionTracer.Note($"Timeline pass earlier GCD profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
+					continue;
+				}
+
 				ActionTracer.Note($"Timeline wait earlier profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
 				return false;
 			}

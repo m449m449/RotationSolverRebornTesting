@@ -207,6 +207,9 @@ public readonly struct ActionCooldownInfo : ICooldown
 	/// <param name="gcdCountForAbility">The GCD count for the ability.</param>
 	/// <returns>True if the action can be used; otherwise, false.</returns>
 	internal bool CooldownCheck(bool isEmpty, byte gcdCountForAbility)
+		=> GetCooldownRejectReason(isEmpty, gcdCountForAbility) == null;
+
+	internal string? GetCooldownRejectReason(bool isEmpty, byte gcdCountForAbility)
 	{
 		if (!_action.Info.IsGeneralGCD)
 		{
@@ -216,14 +219,14 @@ public readonly struct ActionCooldownInfo : ICooldown
 				{
 					if (!WillHaveOneChargeGCD(0, 0))
 					{
-						return false;
+						return CooldownRejectReason("GcdNoCharge");
 					}
 				}
 				else
 				{
 					if (!HasOneCharge && RecastTimeRemainOneChargeRaw > DataCenter.DefaultGCDRemain)
 					{
-						return false;
+						return CooldownRejectReason("NoCharge");
 					}
 				}
 			}
@@ -232,18 +235,26 @@ public readonly struct ActionCooldownInfo : ICooldown
 			{
 				if (RecastTimeRemain > DataCenter.DefaultGCDRemain + (DataCenter.DefaultGCDTotal * gcdCountForAbility))
 				{
-					return false;
+					return $"Cooldown:Clipping remain={RecastTimeRemain:F2} threshold={DataCenter.DefaultGCDRemain + (DataCenter.DefaultGCDTotal * gcdCountForAbility):F2}";
 				}
 			}
 		}
 
 		if (!_action.Info.IsRealGCD)
 		{
-			if (Player.AnimationLock > 0f || !HasOneCharge)
+			if (Player.AnimationLock > 0f)
 			{
-				return false;
+				return CooldownRejectReason("AnimationLock", $" lock={Player.AnimationLock:F2}");
+			}
+
+			if (!HasOneCharge)
+			{
+				return CooldownRejectReason("NoCharge");
 			}
 		}
-		return true;
+		return null;
 	}
+
+	private string CooldownRejectReason(string reason, string extra = "")
+		=> $"Cooldown:{reason}{extra} remain={RecastTimeRemain:F2} one={RecastTimeRemainOneChargeRaw:F2} charges={CurrentCharges}/{MaxCharges} gcd={DataCenter.DefaultGCDRemain:F2}";
 }

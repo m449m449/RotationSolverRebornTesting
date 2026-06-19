@@ -209,9 +209,9 @@ public class BaseAction : IBaseAction
 			return ActionTracer.Reject(this, "BasicCheck");
 		}
 
-		if (!Cooldown.CooldownCheck(usedUp, gcdCountForAbility))
+		if (Cooldown.GetCooldownRejectReason(usedUp, gcdCountForAbility) is { } cooldownRejectReason)
 		{
-			return ActionTracer.Reject(this, "Cooldown");
+			return ActionTracer.Reject(this, cooldownRejectReason);
 		}
 
 		if (Setting.SpecialType == SpecialActionType.MeleeRangedAttack && IActionHelper.IsLastAction(IActionHelper.MovingActions))
