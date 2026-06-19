@@ -592,17 +592,24 @@ public static class ImportedTimelineRuntime
 			return false;
 		}
 
-		if (wantsGcd && IsGeneralGcdRecoveryActive(combatTime))
+		if (wantsGcd && IsGeneralGcdRecoveryActive(combatTime) && !CanUseGeneralGcdRecovery(profile, combatTime))
 		{
-			if (CanUseGeneralGcdRecovery(profile, combatTime))
-			{
-				return false;
-			}
-
 			ActionTracer.Note($"Timeline suppress recovery general GCD profile='{profile.ProfileName}' t={combatTime:F3}");
 			return true;
 		}
 
+		if (TryGetUpcomingEnabledTimelineEntry(profile, combatTime, AssistLeadSeconds, out var suppressEntry))
+		{
+			ActionTracer.Note($"Timeline suppress general profile='{profile.ProfileName}' t={combatTime:F3} entry={suppressEntry.Id}@{suppressEntry.CombatTimeSeconds:F3}");
+			return true;
+		}
+
+		return false;
+	}
+
+	private static bool TryGetUpcomingEnabledTimelineEntry(ImportedTimelineProfile profile, float combatTime, float lookaheadSeconds, out ImportedTimelineAction entry)
+	{
+		entry = default!;
 		for (var index = _nextActionIndex; index < profile.Actions.Count; index++)
 		{
 			if (_completedActionIndices.Contains(index))
@@ -610,13 +617,13 @@ public static class ImportedTimelineRuntime
 				continue;
 			}
 
-			var entry = profile.Actions[index];
+			entry = profile.Actions[index];
 			if (combatTime > entry.CombatTimeSeconds + MissWindowSeconds)
 			{
 				continue;
 			}
 
-			if (entry.CombatTimeSeconds > combatTime + AssistLeadSeconds)
+			if (entry.CombatTimeSeconds > combatTime + lookaheadSeconds)
 			{
 				break;
 			}
@@ -626,7 +633,6 @@ public static class ImportedTimelineRuntime
 				continue;
 			}
 
-			ActionTracer.Note($"Timeline suppress general profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
 			return true;
 		}
 
@@ -658,14 +664,17 @@ public static class ImportedTimelineRuntime
 			return false;
 		}
 
-		if (wantsGcd && IsGeneralGcdRecoveryActive(combatTime))
+		if (wantsGcd && IsGeneralGcdRecoveryActive(combatTime) && !CanUseGeneralGcdRecovery(profile, combatTime))
 		{
-			if (CanUseGeneralGcdRecovery(profile, combatTime))
-			{
-				return false;
-			}
-
 			ActionTracer.Note($"Timeline defer recovery general GCD profile='{profile.ProfileName}' t={combatTime:F3} candidate={action.ID}");
+			return true;
+		}
+
+		if (wantsGcd
+			&& TryGetUpcomingEnabledTimelineEntry(profile, combatTime, AssistLeadSeconds, out var upcomingEntry)
+			&& !DoesEntryMatchAction(upcomingEntry, action))
+		{
+			ActionTracer.Note($"Timeline defer general GCD profile='{profile.ProfileName}' t={combatTime:F3} candidate={action.ID} entry={upcomingEntry.Id}@{upcomingEntry.CombatTimeSeconds:F3}");
 			return true;
 		}
 
