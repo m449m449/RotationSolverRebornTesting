@@ -367,7 +367,7 @@ public partial class CustomRotation
 		}
 		IBaseAction.ShouldEndSpecial = false;
 
-		if (!ImportedTimelineRuntime.ShouldSuppressGeneralRotation())
+		if (!ImportedTimelineRuntime.ShouldSuppressGeneralRotation(false))
 		{
 			if (HasHostilesInRange && DataCenter.CurrentDutyRotation?.AttackAbility(nextGCD, out act) == true)
 			{
