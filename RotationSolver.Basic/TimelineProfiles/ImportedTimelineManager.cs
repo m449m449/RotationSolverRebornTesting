@@ -474,7 +474,6 @@ public static class ImportedTimelineRuntime
 	private const float AssistLeadSeconds = 10.0f;
 	private const float MissWindowSeconds = 1.5f;
 	private const float UnavailableSkipDelaySeconds = 0.35f;
-	private const float AbilityAnimationLockSkipDelaySeconds = 1.0f;
 	private const float CountdownEndGraceSeconds = 2.0f;
 	private const float SyncTransitionGraceSeconds = 45.0f;
 	private const float SyncLeadSeconds = ExecuteLeadSeconds;
@@ -595,7 +594,13 @@ public static class ImportedTimelineRuntime
 
 		if (wantsGcd && IsGeneralGcdRecoveryActive(combatTime))
 		{
-			return false;
+			if (CanUseGeneralGcdRecovery(profile, combatTime))
+			{
+				return false;
+			}
+
+			ActionTracer.Note($"Timeline suppress recovery general GCD profile='{profile.ProfileName}' t={combatTime:F3}");
+			return true;
 		}
 
 		for (var index = _nextActionIndex; index < profile.Actions.Count; index++)
@@ -655,7 +660,13 @@ public static class ImportedTimelineRuntime
 
 		if (wantsGcd && IsGeneralGcdRecoveryActive(combatTime))
 		{
-			return false;
+			if (CanUseGeneralGcdRecovery(profile, combatTime))
+			{
+				return false;
+			}
+
+			ActionTracer.Note($"Timeline defer recovery general GCD profile='{profile.ProfileName}' t={combatTime:F3} candidate={action.ID}");
+			return true;
 		}
 
 		if (ShouldHoldForDueScheduledAction(profile, combatTime, action, wantsGcd))
@@ -839,6 +850,12 @@ public static class ImportedTimelineRuntime
 					continue;
 				}
 
+				if (!wantsGcd && action.Info.IsRealGCD && IsRecentlyReturnedScheduledAction(action, true))
+				{
+					ActionTracer.Note($"Timeline pass returned GCD profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
+					continue;
+				}
+
 				if (!wantsGcd && action.Info.IsRealGCD && !action.Cooldown.CooldownCheck(true, 0))
 				{
 					ActionTracer.Note($"Timeline pass earlier GCD profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
@@ -912,9 +929,7 @@ public static class ImportedTimelineRuntime
 			return false;
 		}
 
-		if (action is { Info.IsRealGCD: false }
-			&& Player.AnimationLock > 0f
-			&& combatTime < entry.CombatTimeSeconds + AbilityAnimationLockSkipDelaySeconds)
+		if (action is { Info.IsRealGCD: false } && IsTimelineAbilityBlockedByAnimationLock(action))
 		{
 			ActionTracer.Note($"Timeline wait animation lock profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3} lock={Player.AnimationLock:F3}");
 			return false;
@@ -925,6 +940,9 @@ public static class ImportedTimelineRuntime
 		ActionTracer.Note($"Timeline skip unavailable profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
 		return true;
 	}
+
+	private static bool IsTimelineAbilityBlockedByAnimationLock(IBaseAction action)
+		=> action.Cooldown.GetCooldownRejectReason(true, 0)?.StartsWith("Cooldown:AnimationLock", StringComparison.Ordinal) == true;
 
 	private static void BeginGeneralGcdRecovery(ImportedTimelineProfile profile, ImportedTimelineAction entry, float combatTime)
 	{
@@ -941,6 +959,37 @@ public static class ImportedTimelineRuntime
 	private static bool IsGeneralGcdRecoveryActive(float combatTime)
 		=> _generalGcdRecoveryUntilCombatTime > 0
 			&& combatTime <= _generalGcdRecoveryUntilCombatTime;
+
+	private static bool CanUseGeneralGcdRecovery(ImportedTimelineProfile profile, float combatTime)
+	{
+		var lookaheadSeconds = GetGcdSuppressionLeadSeconds();
+		for (var index = _nextActionIndex; index < profile.Actions.Count; index++)
+		{
+			if (_completedActionIndices.Contains(index))
+			{
+				continue;
+			}
+
+			var entry = profile.Actions[index];
+			if (combatTime > entry.CombatTimeSeconds + MissWindowSeconds)
+			{
+				continue;
+			}
+
+			if (entry.CombatTimeSeconds > combatTime + lookaheadSeconds)
+			{
+				break;
+			}
+
+			if (ResolveAction(entry.Id) is IBaseAction { Info.IsRealGCD: true } action && action.IsEnabled)
+			{
+				ActionTracer.Note($"Timeline hold recovery general GCD profile='{profile.ProfileName}' t={combatTime:F3} next={entry.Id}@{entry.CombatTimeSeconds:F3}");
+				return false;
+			}
+		}
+
+		return true;
+	}
 
 	private static float GetScheduleLeadSeconds(bool wantsGcd)
 	{
