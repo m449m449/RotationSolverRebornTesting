@@ -875,6 +875,13 @@ public static class ImportedTimelineRuntime
 				return false;
 			}
 
+			if (ShouldRequireCurrentEnemyTarget(entry, action) && !HasCurrentEnemyTarget())
+			{
+				ActionTracer.Note($"Timeline reject no current hostile target profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
+				TrySkipUnavailableScheduledAction(profile, index, entry, combatTime);
+				continue;
+			}
+
 			try
 			{
 				IBaseAction.ForceEnable = true;
@@ -1034,6 +1041,11 @@ public static class ImportedTimelineRuntime
 			return false;
 		}
 
+		if (ShouldRequireCurrentEnemyTarget(entry, action) && !HasCurrentEnemyTarget())
+		{
+			return false;
+		}
+
 		if (TryAssignScheduledHostileTarget(action) || (!ShouldUseTimelineHostileTarget(entry, action) && TryAssignScheduledSelfExecutedTarget(action)))
 		{
 			act = action;
@@ -1049,6 +1061,14 @@ public static class ImportedTimelineRuntime
 			&& !action.Setting.IsFriendly
 			&& action.Info.CanTargetHostile
 			&& !action.TargetInfo.IsTargetArea;
+
+	private static bool ShouldRequireCurrentEnemyTarget(ImportedTimelineAction entry, IBaseAction action)
+		=> entry.SourceIsFriendly
+			&& !entry.TargetIsFriendly
+			&& !action.Setting.IsFriendly;
+
+	private static bool HasCurrentEnemyTarget()
+		=> Svc.Targets.Target is IBattleChara currentTarget && currentTarget.IsEnemy();
 
 	private static bool TryAssignScheduledHostileTarget(IBaseAction action)
 	{
@@ -1074,23 +1094,6 @@ public static class ImportedTimelineRuntime
 		{
 			target = currentTarget;
 			return true;
-		}
-
-		var hostileTarget = DataCenter.HostileTarget;
-		if (hostileTarget != null && IsValidScheduledHostileTarget(action, hostileTarget, false))
-		{
-			target = hostileTarget;
-			return true;
-		}
-
-		var hostiles = DataCenter.AllHostileTargets;
-		for (var i = 0; i < hostiles.Count; i++)
-		{
-			if (IsValidScheduledHostileTarget(action, hostiles[i], true))
-			{
-				target = hostiles[i];
-				return true;
-			}
 		}
 
 		return false;
