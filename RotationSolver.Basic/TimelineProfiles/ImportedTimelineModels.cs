@@ -89,6 +89,9 @@ public sealed class ImportedTimelineAction
 	[JsonProperty("targetId")]
 	public uint TargetId { get; set; }
 
+	[JsonProperty("target", NullValueHandling = NullValueHandling.Ignore)]
+	public string? Target { get; set; }
+
 	[JsonProperty("sourceIsFriendly")]
 	public bool SourceIsFriendly { get; set; }
 

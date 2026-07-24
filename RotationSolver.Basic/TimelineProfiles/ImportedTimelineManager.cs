@@ -355,9 +355,18 @@ public static class ImportedTimelineManager
 		[
 			.. profile.Actions
 				.Where(action => action != null && action.Id > 0 && action.CombatTimeSeconds >= 0)
+				.Select(NormalizeAction)
 				.OrderBy(action => action.CombatTimeSeconds)
 				.ThenBy(action => action.Id)
 		];
+	}
+
+	private static ImportedTimelineAction NormalizeAction(ImportedTimelineAction action)
+	{
+		action.Target = string.IsNullOrWhiteSpace(action.Target)
+			? null
+			: action.Target.Trim();
+		return action;
 	}
 
 	private static ImportedTimelineSync NormalizeSync(ImportedTimelineSync sync)
@@ -480,6 +489,7 @@ public static class ImportedTimelineRuntime
 	private const float GeneralGcdRecoverySeconds = 2.0f;
 	private const uint TimelineItemIdFlag = 0x02000000;
 	private const uint HighQualityItemIdOffset = 1_000_000;
+	private const uint GunbreakerRangedFallbackActionId = (uint)ActionID.LightningShotPvE;
 	private static readonly TimeSpan ReturnedScheduledActionDeferBypassDuration = TimeSpan.FromMilliseconds(250);
 	private const string SyncEventChat = "chat";
 	private const string SyncEventCast = "cast";
@@ -903,6 +913,13 @@ public static class ImportedTimelineRuntime
 					skipAoeCheck: true,
 					skipTTKCheck: true))
 				{
+					if (!TryAssignScheduledConfiguredTarget(entry, action, out var configuredTarget))
+					{
+						ActionTracer.Note($"Timeline reject configured target profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3} target='{configuredTarget}'");
+						TrySkipUnavailableScheduledAction(profile, index, entry, combatTime);
+						continue;
+					}
+
 					if (ShouldUseTimelineHostileTarget(entry, action) && !TryAssignScheduledHostileTarget(action))
 					{
 						ActionTracer.Note($"Timeline reject no hostile target profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
@@ -910,7 +927,10 @@ public static class ImportedTimelineRuntime
 						continue;
 					}
 
-					ActionTracer.Note($"Timeline accept profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}");
+					var targetTrace = configuredTarget == null
+						? string.Empty
+						: $" target='{configuredTarget}' object={action.Target.Target.GameObjectId}";
+					ActionTracer.Note($"Timeline accept profile='{profile.ProfileName}' t={combatTime:F3} entry={entry.Id}@{entry.CombatTimeSeconds:F3}{targetTrace}");
 					RememberReturnedScheduledAction(act, action, wantsGcd);
 					return true;
 				}
@@ -1046,13 +1066,65 @@ public static class ImportedTimelineRuntime
 			return false;
 		}
 
-		if (TryAssignScheduledHostileTarget(action) || (!ShouldUseTimelineHostileTarget(entry, action) && TryAssignScheduledSelfExecutedTarget(action)))
+		if (TryUseScheduledGunbreakerRangedFallback(entry, action, out act))
+		{
+			return true;
+		}
+
+		if (!TryAssignScheduledConfiguredTarget(entry, action, out var configuredTarget))
+		{
+			return false;
+		}
+
+		if (configuredTarget != null
+			|| TryAssignScheduledHostileTarget(action)
+			|| (!ShouldUseTimelineHostileTarget(entry, action) && TryAssignScheduledSelfExecutedTarget(action)))
 		{
 			act = action;
 			return true;
 		}
 
 		return false;
+	}
+
+	private static bool TryUseScheduledGunbreakerRangedFallback(ImportedTimelineAction entry, IBaseAction scheduledAction, out IAction? act)
+	{
+		act = null;
+		if (DataCenter.Job != Job.GNB
+			|| scheduledAction.ID == GunbreakerRangedFallbackActionId
+			|| !scheduledAction.Info.IsRealGCD
+			|| !ShouldUseTimelineHostileTarget(entry, scheduledAction)
+			|| Svc.Targets.Target is not IBattleChara currentTarget
+			|| !currentTarget.IsEnemy())
+		{
+			return false;
+		}
+
+		var scheduledRange = GetScheduledTargetRange(scheduledAction);
+		var targetDistance = currentTarget.DistanceToPlayer();
+		if (scheduledRange <= 0 || targetDistance <= scheduledRange)
+		{
+			return false;
+		}
+
+		if (ResolveAction(GunbreakerRangedFallbackActionId) is not IBaseAction rangedAction
+			|| !rangedAction.IsEnabled
+			|| GetScheduledTargetRange(rangedAction) <= scheduledRange
+			|| !rangedAction.CanUse(out act,
+				skipStatusProvideCheck: true,
+				skipTargetStatusNeedCheck: true,
+				skipComboCheck: true,
+				usedUp: true,
+				skipAoeCheck: true,
+				skipTTKCheck: true)
+			|| !TryAssignScheduledHostileTarget(rangedAction))
+		{
+			act = null;
+			return false;
+		}
+
+		ActionTracer.Note($"Timeline ranged fallback scheduled={scheduledAction.ID} returned={rangedAction.ID} distance={targetDistance:F2} range={scheduledRange:F2}");
+		return true;
 	}
 
 	private static bool ShouldUseTimelineHostileTarget(ImportedTimelineAction entry, IBaseAction action)
@@ -1136,6 +1208,162 @@ public static class ImportedTimelineRuntime
 
 	private static float GetScheduledTargetRange(IBaseAction action)
 		=> MathF.Max(action.TargetInfo.Range, action.Info.Range);
+
+	private static bool TryAssignScheduledConfiguredTarget(ImportedTimelineAction entry, IBaseAction action, out string? configuredTarget)
+	{
+		configuredTarget = GetScheduledTarget(entry, action);
+		if (configuredTarget == null)
+		{
+			return true;
+		}
+
+		if (string.Equals(configuredTarget, "self", StringComparison.OrdinalIgnoreCase))
+		{
+			if (Player.Object == null
+				|| !action.Info.CanTargetSelf
+				|| !action.Setting.CanTarget(Player.Object))
+			{
+				return false;
+			}
+
+			action.Target = new TargetResult(Player.Object, [], Player.Object.Position);
+			return true;
+		}
+
+		if (!TryParsePartyTarget(configuredTarget, out var partySlot)
+			|| !TryGetScheduledPartyTarget(action, partySlot, out var partyTarget)
+			|| partyTarget == null)
+		{
+			return false;
+		}
+
+		action.Target = new TargetResult(partyTarget, [], partyTarget.Position);
+		return true;
+	}
+
+	private static string? GetScheduledTarget(ImportedTimelineAction entry, IBaseAction action)
+	{
+		if (!string.IsNullOrWhiteSpace(entry.Target))
+		{
+			return entry.Target;
+		}
+
+		if (!action.Setting.IsFriendly || !entry.SourceIsFriendly || !entry.TargetIsFriendly || entry.TargetId == 0)
+		{
+			return null;
+		}
+
+		if (entry.TargetId == entry.SourceId && action.Info.CanTargetSelf)
+		{
+			return "self";
+		}
+
+		return entry.TargetId != entry.SourceId
+			&& (action.Info.CanTargetParty || action.Info.CanTargetAlly)
+				? "party"
+				: null;
+	}
+
+	private static bool TryParsePartyTarget(string configuredTarget, out int? partySlot)
+	{
+		partySlot = null;
+		if (string.Equals(configuredTarget, "party", StringComparison.OrdinalIgnoreCase))
+		{
+			return true;
+		}
+
+		const string partySlotPrefix = "party:";
+		if (!configuredTarget.StartsWith(partySlotPrefix, StringComparison.OrdinalIgnoreCase)
+			|| !int.TryParse(configuredTarget.AsSpan(partySlotPrefix.Length), out var parsedSlot)
+			|| parsedSlot <= 0)
+		{
+			return false;
+		}
+
+		partySlot = parsedSlot;
+		return true;
+	}
+
+	private static bool TryGetScheduledPartyTarget(IBaseAction action, int? partySlot, out IBattleChara? target)
+	{
+		target = null;
+		if (Player.Object == null || (!action.Info.CanTargetParty && !action.Info.CanTargetAlly))
+		{
+			return false;
+		}
+
+		if (partySlot.HasValue)
+		{
+			var slot = 0;
+			foreach (var member in Svc.Party)
+			{
+				slot++;
+				if (slot != partySlot.Value)
+				{
+					continue;
+				}
+
+				if (member.GameObject is IBattleChara partyMember && IsValidScheduledPartyTarget(action, partyMember))
+				{
+					target = partyMember;
+					return true;
+				}
+
+				return false;
+			}
+
+			return false;
+		}
+
+		if (Svc.Targets.Target is IBattleChara currentTarget && IsValidScheduledPartyTarget(action, currentTarget))
+		{
+			target = currentTarget;
+			return true;
+		}
+
+		if (Svc.Targets.FocusTarget is IBattleChara focusTarget && IsValidScheduledPartyTarget(action, focusTarget))
+		{
+			target = focusTarget;
+			return true;
+		}
+
+		foreach (var member in Svc.Party)
+		{
+			if (member.GameObject is IBattleChara partyMember && IsValidScheduledPartyTarget(action, partyMember))
+			{
+				target = partyMember;
+				return true;
+			}
+		}
+
+		for (var i = 0; i < DataCenter.PartyMembers.Count; i++)
+		{
+			var partyMember = DataCenter.PartyMembers[i];
+			if (IsValidScheduledPartyTarget(action, partyMember))
+			{
+				target = partyMember;
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private static bool IsValidScheduledPartyTarget(IBaseAction action, IBattleChara target)
+	{
+		if (Player.Object == null
+			|| target.GameObjectId == Player.Object.GameObjectId
+			|| !target.IsParty()
+			|| target.IsDead
+			|| target.IsConditionCannotTarget())
+		{
+			return false;
+		}
+
+		var range = GetScheduledTargetRange(action);
+		return (range <= 0 || target.DistanceToPlayer() <= range)
+			&& action.Setting.CanTarget(target);
+	}
 
 	private static bool TryAssignScheduledSelfExecutedTarget(IBaseAction action)
 	{
@@ -1609,7 +1837,28 @@ public static class ImportedTimelineRuntime
 		}
 
 		var resolved = ResolveAction(entry.Id);
-		return resolved != null && (resolved.ID == actionId || resolved.AdjustedID == actionId);
+		return resolved != null
+			&& (resolved.ID == actionId
+				|| resolved.AdjustedID == actionId
+				|| IsGunbreakerRangedFallbackMatch(resolved, actionId));
+	}
+
+	private static bool IsGunbreakerRangedFallbackMatch(IAction scheduled, uint usedActionId)
+	{
+		if (DataCenter.Job != Job.GNB
+			|| usedActionId != GunbreakerRangedFallbackActionId
+			|| scheduled is not IBaseAction scheduledAction
+			|| scheduledAction.ID == GunbreakerRangedFallbackActionId
+			|| !scheduledAction.Info.IsRealGCD
+			|| !scheduledAction.Info.CanTargetHostile
+			|| scheduledAction.Setting.IsFriendly
+			|| scheduledAction.TargetInfo.IsTargetArea
+			|| ResolveAction(GunbreakerRangedFallbackActionId) is not IBaseAction rangedAction)
+		{
+			return false;
+		}
+
+		return GetScheduledTargetRange(rangedAction) > GetScheduledTargetRange(scheduledAction);
 	}
 
 	private static bool DoesEntryMatchAction(ImportedTimelineAction entry, IAction action)
