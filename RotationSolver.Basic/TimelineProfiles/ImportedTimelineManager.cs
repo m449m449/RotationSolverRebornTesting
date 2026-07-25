@@ -3,6 +3,7 @@ using ECommons.ExcelServices;
 using ECommons.GameHelpers;
 using ECommons.Logging;
 using Dalamud.Game.ClientState.Objects.SubKinds;
+using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 using Lumina.Excel.Sheets;
 using RotationSolver.Basic.Data;
 using RotationSolver.Basic.Helpers;
@@ -905,13 +906,17 @@ public static class ImportedTimelineRuntime
 					return true;
 				}
 
+				var configuredTargetOverride = GetScheduledTarget(entry, action) == null
+					? default
+					: TargetType.Self;
 				if (action.CanUse(out act,
 					skipStatusProvideCheck: true,
 					skipTargetStatusNeedCheck: true,
 					skipComboCheck: true,
 					usedUp: true,
 					skipAoeCheck: true,
-					skipTTKCheck: true))
+					skipTTKCheck: true,
+					targetOverride: configuredTargetOverride))
 				{
 					if (!TryAssignScheduledConfiguredTarget(entry, action, out var configuredTarget))
 					{
@@ -1294,22 +1299,12 @@ public static class ImportedTimelineRuntime
 
 		if (partySlot.HasValue)
 		{
-			var slot = 0;
-			foreach (var member in Svc.Party)
+			if (TryResolvePartyListSlot(partySlot.Value, out var partyMember)
+				&& partyMember != null
+				&& IsValidScheduledPartyTarget(action, partyMember))
 			{
-				slot++;
-				if (slot != partySlot.Value)
-				{
-					continue;
-				}
-
-				if (member.GameObject is IBattleChara partyMember && IsValidScheduledPartyTarget(action, partyMember))
-				{
-					target = partyMember;
-					return true;
-				}
-
-				return false;
+				target = partyMember;
+				return true;
 			}
 
 			return false;
@@ -1344,6 +1339,52 @@ public static class ImportedTimelineRuntime
 				target = partyMember;
 				return true;
 			}
+		}
+
+		return false;
+	}
+
+	private static unsafe bool TryResolvePartyListSlot(int partySlot, out IBattleChara? target)
+	{
+		target = null;
+		if (partySlot is < 1 or > 8)
+		{
+			return false;
+		}
+
+		var pronounModule = PronounModule.Instance();
+		if (pronounModule == null)
+		{
+			return false;
+		}
+
+		try
+		{
+			var placeholder = partySlot.ToString();
+			var resolved = pronounModule->ResolvePlaceholder(placeholder, 0, 0);
+			if (resolved == null)
+			{
+				resolved = pronounModule->ResolvePlaceholder($"<{placeholder}>", 0, 0);
+			}
+
+			if (resolved == null)
+			{
+				return false;
+			}
+
+			var resolvedAddress = (nint)resolved;
+			foreach (var gameObject in Svc.Objects)
+			{
+				if (gameObject.Address == resolvedAddress && gameObject is IBattleChara battleChara)
+				{
+					target = battleChara;
+					return true;
+				}
+			}
+		}
+		catch
+		{
+			return false;
 		}
 
 		return false;
