@@ -936,6 +936,9 @@ public struct ActionTargetInfo(IBaseAction action)
 		=> (IsMovingSpecialType(action.Setting.SpecialType))
 		   && !action.Config.SkipPositionSafetyCheck && Service.Config.BmrSafetyCheckAuto;
 
+	internal readonly bool IsMovementTargetSafe(IBattleChara target)
+		=> !ShouldCheckMoveSafety() || CheckMovementSafety(target.Position, target);
+
 	/// <summary>
 	/// Returns true for any <see cref="SpecialActionType"/> that physically moves the character,
 	/// regardless of whether the movement is a pure repositioning action or an attack with built-in movement.

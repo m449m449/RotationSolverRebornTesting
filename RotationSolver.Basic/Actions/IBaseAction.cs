@@ -71,7 +71,9 @@ public interface IBaseAction : IAction
 	/// <param name="gcdCountForAbility">the gcd count for the ability.</param>
 	/// <param name="checkActionManager">Whether to check the in-game action manager in addition to our own internal logic.</param>
 	/// <param name="targetOverride">Overrides the default target type for the action.</param>
+	/// <param name="targetResultOverride">Uses this exact target instead of running automatic target selection.</param>
 	/// <returns>can I use it</returns>
 	bool CanUse(out IAction act, bool skipStatusProvideCheck = false, bool skipStatusNeed = false, bool skipTargetStatusNeedCheck = false, bool skipComboCheck = false, bool skipCastingCheck = false,
-		bool usedUp = false, bool skipAoeCheck = false, bool skipTTKCheck = false, byte gcdCountForAbility = 0, bool checkActionManager = false, TargetType targetOverride = default);
+		bool usedUp = false, bool skipAoeCheck = false, bool skipTTKCheck = false, byte gcdCountForAbility = 0, bool checkActionManager = false, TargetType targetOverride = default,
+		TargetResult? targetResultOverride = null);
 }

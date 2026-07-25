@@ -909,6 +909,14 @@ public static class ImportedTimelineRuntime
 				var configuredTargetOverride = GetScheduledTarget(entry, action) == null
 					? default
 					: TargetType.Self;
+				TargetResult? scheduledTargetOverride = null;
+				if (ShouldUseTimelineHostileTarget(entry, action)
+					&& TryGetScheduledHostileTarget(action, out var scheduledHostileTarget)
+					&& scheduledHostileTarget != null)
+				{
+					scheduledTargetOverride = new TargetResult(scheduledHostileTarget, [], scheduledHostileTarget.Position);
+				}
+
 				if (action.CanUse(out act,
 					skipStatusProvideCheck: true,
 					skipTargetStatusNeedCheck: true,
@@ -916,7 +924,8 @@ public static class ImportedTimelineRuntime
 					usedUp: true,
 					skipAoeCheck: true,
 					skipTTKCheck: true,
-					targetOverride: configuredTargetOverride))
+					targetOverride: configuredTargetOverride,
+					targetResultOverride: scheduledTargetOverride))
 				{
 					if (!TryAssignScheduledConfiguredTarget(entry, action, out var configuredTarget))
 					{
@@ -1184,6 +1193,11 @@ public static class ImportedTimelineRuntime
 		}
 
 		if (!target.IsEnemy())
+		{
+			return false;
+		}
+
+		if (!action.TargetInfo.IsMovementTargetSafe(target))
 		{
 			return false;
 		}
